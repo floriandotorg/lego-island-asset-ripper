@@ -40,7 +40,7 @@ class SI:
 
     class ChunkFlags(IntEnum):
         Split = 0x10
-        End = 0x20
+        End = 0x02
 
     @dataclass
     class Object:
@@ -172,8 +172,8 @@ class SI:
                 self._object_list[id] = obj
                 logger.debug(obj)
             case b"MxCh":
-                flags, id, time, total_size = struct.unpack(
-                    "<HIII", self._file.read(CHUNK_HEADER_SIZE)
+                flags, id, total_size = struct.unpack(
+                    "<HI4xI", self._file.read(CHUNK_HEADER_SIZE)
                 )
                 size_without_header = size - CHUNK_HEADER_SIZE
                 data = self._file.read(size_without_header)
