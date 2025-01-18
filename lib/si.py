@@ -180,9 +180,6 @@ class SI:
                 if not flags & SI.ChunkFlags.End:
                     obj = self._object_list[id]
                     obj.data.extend(data)
-                    logger.debug(
-                        f"{id=}, {self._file.tell()=:08x}, {size_without_header=}"
-                    )
                     if flags & SI.ChunkFlags.Split and self._joining_size > 0:
                         self._joining_progress += size_without_header
                         if self._joining_progress == self._joining_size:
