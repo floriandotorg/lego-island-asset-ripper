@@ -1,8 +1,11 @@
 import io
+import logging
 import struct
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 HEADER_SIZE = 8
 CHUNK_HEADER_SIZE = 14
@@ -55,6 +58,7 @@ class SI:
         file_type: Optional["SI.FileType"]
         volume: Optional[int]
         data: bytearray = field(default_factory=bytearray)
+        first_chunk_size: Optional[int] = None
 
         def open(self) -> io.BytesIO:
             return io.BytesIO(self.data)
@@ -181,6 +185,7 @@ class SI:
                             self._joining_progress = 0
                             self._joining_size = 0
                     else:
+                        obj.first_chunk_size = size_without_header
                         if flags & SI.ChunkFlags.Split:
                             self._joining_size = size_without_header
                             self._joining_progress = total_size
