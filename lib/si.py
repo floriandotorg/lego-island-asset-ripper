@@ -58,7 +58,7 @@ class SI:
         file_type: Optional["SI.FileType"]
         volume: Optional[int]
         data: bytearray = field(default_factory=bytearray)
-        first_chunk_size: Optional[int] = None
+        first_chunk_size: int = 0
 
         def open(self) -> io.BytesIO:
             return io.BytesIO(self.data)
