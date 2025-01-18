@@ -97,7 +97,7 @@ class SI:
         magic, size = struct.unpack("<4sI", self._file.read(8))
         end = self._file.tell() + size
 
-        print(f"{pos=:08x}, {magic=}, {size=}")
+        logger.debug(f"{pos=:08x}, {magic=}, {size=}")
 
         match magic:
             case b"RIFF":
@@ -107,7 +107,9 @@ class SI:
                 self._version, self._buffer_size, buffer_count = struct.unpack(
                     "<III", self._file.read(12)
                 )
-                print(f"{self._version=:08x}, {self._buffer_size=}, {buffer_count=}")
+                logger.debug(
+                    f"{self._version=:08x}, {self._buffer_size=}, {buffer_count=}"
+                )
             case b"pad ":
                 self._file.seek(size, io.SEEK_CUR)
             case b"MxOf":
@@ -168,7 +170,7 @@ class SI:
                     volume=volume,
                 )
                 self._object_list[id] = obj
-                print(obj)
+                logger.debug(obj)
             case b"MxCh":
                 flags, id, time, total_size = struct.unpack(
                     "<HIII", self._file.read(CHUNK_HEADER_SIZE)
@@ -178,7 +180,9 @@ class SI:
                 if not flags & SI.ChunkFlags.End:
                     obj = self._object_list[id]
                     obj.data.extend(data)
-                    print(f"{id=}, {self._file.tell()=:08x}, {size_without_header=}")
+                    logger.debug(
+                        f"{id=}, {self._file.tell()=:08x}, {size_without_header=}"
+                    )
                     if flags & SI.ChunkFlags.Split and self._joining_size > 0:
                         self._joining_progress += size_without_header
                         if self._joining_progress == self._joining_size:
