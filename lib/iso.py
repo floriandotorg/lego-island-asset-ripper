@@ -14,6 +14,12 @@ class ISO9660:
             self.pos = 0
 
         def read(self, n: int | None = None, /) -> bytes:
+            if self.pos >= self.len:
+                return b""
+
+            if n is None or self.pos + n > self.len:
+                n = self.len - self.pos
+
             self.mm.seek(self.loc * SECTOR_SIZE + self.pos)
             self.pos += n
             return self.mm.read(n)
@@ -23,13 +29,16 @@ class ISO9660:
 
         def seek(self, pos: int, whence: int = 0) -> int:
             if whence == 0:
-                self.pos = pos
+                new_pos = pos
             elif whence == 1:
-                self.pos += pos
+                new_pos = self.pos + pos
             elif whence == 2:
-                self.pos = self.len - pos
+                new_pos = self.len - pos
             else:
                 raise ValueError("Invalid whence")
+            if new_pos < 0:
+                raise ValueError("Negative seek position")
+            self.pos = new_pos
             return self.pos
 
         def readable(self) -> bool:
