@@ -1,7 +1,7 @@
-from enum import Enum
 import io
 import mmap
 import struct
+from enum import Enum
 
 SECTOR_SIZE = 2048
 
@@ -104,13 +104,13 @@ class ISO9660:
             if rec_len < 1:
                 break
             n += rec_len
-            name = self.mm.read(name_len)
-            if name == b"\x00" or name == b"\x01":
+            name_bytes = self.mm.read(name_len)
+            if name_bytes == b"\x00" or name_bytes == b"\x01":
                 continue
             if self.variant == ISO9660.Variant.ISO9660:
-                name = name.decode("ascii")
+                name = name_bytes.decode("ascii")
             elif self.variant == ISO9660.Variant.Joliet:
-                name = name.decode("utf-16be")
+                name = name_bytes.decode("utf-16be")
             name = name.strip(";1")
             filename = path + name
             self.path_to_loc[filename] = {"loc": loc, "len": len}
