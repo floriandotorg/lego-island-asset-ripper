@@ -1,3 +1,4 @@
+from enum import Enum
 import io
 import mmap
 import struct
@@ -62,21 +63,36 @@ class ISO9660:
         def truncate(self, size: int | None = None, /) -> int:
             raise OSError()
 
-    def __init__(self, path: str) -> None:
+    class Variant(Enum):
+        ISO9660 = 1
+        Joliet = 2
+
+    def __init__(self, path: str, variant: Variant = Variant.ISO9660) -> None:
         self.path_to_loc: dict[str, dict[str, int]] = {}
         self.file = open(path, "rb")
         self.mm = mmap.mmap(self.file.fileno(), length=0, access=mmap.ACCESS_READ)
-        self.mm.seek(16 * SECTOR_SIZE)
-        type, identifier, version = struct.unpack("b5sb", self.mm.read(7))
-        if identifier != b"CD001" or version != 1:
-            raise ValueError("Not a valid ISO 9660 file")
-        if type != 1:
-            raise ValueError(
-                "Primary volume descriptor must be first volume descriptor"
-            )
+        match variant:
+            case ISO9660.Variant.ISO9660:
+                if self._get_volume_descriptor_type(16) != 1:
+                    raise ValueError(
+                        "Primary volume descriptor must be primary volume descriptor"
+                    )
+            case ISO9660.Variant.Joliet:
+                if self._get_volume_descriptor_type(17) != 2:
+                    raise ValueError(
+                        "Primary volume descriptor must be supplementary volume descriptor"
+                    )
+        self.variant = variant
         self.mm.seek(151, io.SEEK_CUR)
         pvd_loc, pvd_len = struct.unpack("<I4xI", self.mm.read(12))
         self._read_dir(pvd_loc, pvd_len)
+
+    def _get_volume_descriptor_type(self, sector: int) -> int | None:
+        self.mm.seek(sector * SECTOR_SIZE)
+        type, identifier, version = struct.unpack("b5sb", self.mm.read(7))
+        if identifier != b"CD001" or version != 1:
+            raise ValueError("Not a valid ISO 9660 file")
+        return type
 
     def _read_dir(self, start: int, total_len: int, path: str = "") -> None:
         n = 0
@@ -88,9 +104,14 @@ class ISO9660:
             if rec_len < 1:
                 break
             n += rec_len
-            name = self.mm.read(name_len).decode("ascii").strip(";1")
-            if name == "\x00" or name == "\x01":
+            name = self.mm.read(name_len)
+            if name == b"\x00" or name == b"\x01":
                 continue
+            if self.variant == ISO9660.Variant.ISO9660:
+                name = name.decode("ascii")
+            elif self.variant == ISO9660.Variant.Joliet:
+                name = name.decode("utf-16be")
+            name = name.strip(";1")
             filename = path + name
             self.path_to_loc[filename] = {"loc": loc, "len": len}
             if flags & 0b10:
