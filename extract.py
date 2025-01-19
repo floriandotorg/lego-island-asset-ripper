@@ -3,7 +3,6 @@ import logging
 import os.path
 import struct
 import sys
-from contextlib import contextmanager
 from tkinter import filedialog
 
 from lib.iso import ISO9660
@@ -13,29 +12,24 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-@contextmanager
-def write_chunk(type: bytes, file: io.BufferedIOBase):
-    file.write(struct.pack("<4sI", type, 0))
-    start_position = file.tell()
-    yield file
-    end_position = file.tell()
-    size = end_position - start_position
-    file.seek(start_position - 4)
-    file.write(struct.pack("<I", size))
-    file.seek(end_position)
+def extend_chunk(type: bytes, content: bytes) -> bytes:
+    result = bytearray()
+    result.extend(struct.pack("<4sI", type, len(content)))
+    result.extend(content)
+    if (len(content) % 2) == 1:
+        result.append(0)
+    return bytes(result)
 
 
 def write_si(obj: SI.Object) -> bool:
     match obj.file_type:
         case SI.FileType.WAV:
             with open(f"extract/{filename}_{obj.id}.wav", "wb") as file:
-                with obj.open() as obj_data:
-                    with write_chunk(b"RIFF", file):
-                        file.write(b"WAVE")
-                        with write_chunk(b"fmt ", file):
-                            file.write(obj_data.read(obj.first_chunk_size))
-                        with write_chunk(b"data", file):
-                            file.write(obj_data.read())
+                content = bytearray()
+                content.extend(b"WAVE")
+                content.extend(extend_chunk(b"fmt ", obj.data[:obj.first_chunk_size]))
+                content.extend(extend_chunk(b"data", obj.data[obj.first_chunk_size:]))
+                file.write(extend_chunk(b"RIFF", content))
             return True
         case SI.FileType.STL:
             write_bitmap(f"extract/{filename}_{obj.id}.bmp", obj)
