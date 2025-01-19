@@ -58,7 +58,7 @@ class SI:
         file_type: Optional["SI.FileType"]
         volume: Optional[int]
         data: bytearray = field(default_factory=bytearray)
-        first_chunk_size: int = 0
+        first_chunk_size: int = -1
 
         def open(self) -> io.BytesIO:
             return io.BytesIO(self.data)
@@ -73,8 +73,6 @@ class SI:
         # self._offset_list: list[int] = []
         self._object_list: dict[int, SI.Object] = {}
         self._version: Optional[SI.Version] = None
-        self._joining_size = 0
-        self._joining_progress = 0
         self._read_chunk()
 
     def object_list(self) -> dict[int, "SI.Object"]:
@@ -180,16 +178,8 @@ class SI:
                 if not flags & SI.ChunkFlags.End:
                     obj = self._object_list[id]
                     obj.data.extend(data)
-                    if flags & SI.ChunkFlags.Split and self._joining_size > 0:
-                        self._joining_progress += size_without_header
-                        if self._joining_progress == self._joining_size:
-                            self._joining_progress = 0
-                            self._joining_size = 0
-                    else:
-                        obj.first_chunk_size = size_without_header
-                        if flags & SI.ChunkFlags.Split:
-                            self._joining_size = size_without_header
-                            self._joining_progress = total_size
+                    if obj.first_chunk_size < 0:
+                        obj.first_chunk_size = total_size
             case _:
                 raise ValueError(f"Unknown chunk type: {magic}")
 
