@@ -102,7 +102,8 @@ class ISO9660:
                 "<bxI4xI11xb6xb", self.mm.read(33)
             )
             if rec_len < 1:
-                break
+                n = (n // SECTOR_SIZE + 1) * SECTOR_SIZE
+                continue
             n += rec_len
             name_bytes = self.mm.read(name_len)
             if name_bytes == b"\x00" or name_bytes == b"\x01":
