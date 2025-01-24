@@ -96,11 +96,15 @@ def write_si(filename: str, obj: SI.Object) -> bool:
             mem_file = io.BytesIO()
             write_flc(mem_file, obj)
             mem_file.seek(0)
-            flc = FLC(mem_file)
-            write_flc_sprite_sheet(flc, f"extract/{filename}_{len(flc.frames())}frames_{flc.fps()}fps_{obj.id}.bmp")
-            mem_file.seek(0)
-            with open(f"extract/{filename}_{obj.id}.flc", "wb") as file:
-                file.write(mem_file.getvalue())
+            try:
+                flc = FLC(mem_file)
+                write_flc_sprite_sheet(flc, f"extract/{filename}_{obj.id}_frames{len(flc.frames())}_fps{flc.fps()}.bmp")
+                mem_file.seek(0)
+                with open(f"extract/{filename}_{obj.id}.flc", "wb") as file:
+                    file.write(mem_file.getvalue())
+            except Exception as e:
+                logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
+                return False
             return True
     return False
 
