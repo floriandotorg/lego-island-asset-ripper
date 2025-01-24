@@ -74,14 +74,10 @@ class ISO9660:
         match variant:
             case ISO9660.Variant.ISO9660:
                 if self._get_volume_descriptor_type(16) != 1:
-                    raise ValueError(
-                        "Primary volume descriptor must be primary volume descriptor"
-                    )
+                    raise ValueError("Primary volume descriptor must be primary volume descriptor")
             case ISO9660.Variant.Joliet:
                 if self._get_volume_descriptor_type(17) != 2:
-                    raise ValueError(
-                        "Primary volume descriptor must be supplementary volume descriptor"
-                    )
+                    raise ValueError("Primary volume descriptor must be supplementary volume descriptor")
         self.variant = variant
         self.mm.seek(151, io.SEEK_CUR)
         pvd_loc, pvd_len = struct.unpack("<I4xI", self.mm.read(12))
@@ -98,9 +94,7 @@ class ISO9660:
         n = 0
         while n < total_len:
             self.mm.seek(start * SECTOR_SIZE + n)
-            rec_len, loc, len, flags, name_len = struct.unpack(
-                "<bxI4xI11xb6xb", self.mm.read(33)
-            )
+            rec_len, loc, len, flags, name_len = struct.unpack("<bxI4xI11xb6xb", self.mm.read(33))
             if rec_len < 1:
                 n = (n // SECTOR_SIZE + 1) * SECTOR_SIZE
                 continue
@@ -119,9 +113,7 @@ class ISO9660:
                 self._read_dir(loc, len, filename + "/")
 
     def open(self, path: str) -> File:
-        return self.File(
-            self.mm, self.path_to_loc[path]["loc"], self.path_to_loc[path]["len"]
-        )
+        return self.File(self.mm, self.path_to_loc[path]["loc"], self.path_to_loc[path]["len"])
 
     def close(self) -> None:
         self.mm.close()
