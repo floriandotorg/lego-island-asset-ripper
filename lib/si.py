@@ -58,7 +58,7 @@ class SI:
         file_type: Optional["SI.FileType"]
         volume: Optional[int]
         data: bytearray = field(default_factory=bytearray)
-        first_chunk_size: int = -1
+        chunk_sizes: list[int] = field(default_factory=list)
 
         def open(self) -> io.BytesIO:
             return io.BytesIO(self.data)
@@ -73,6 +73,7 @@ class SI:
         # self._offset_list: list[int] = []
         self._object_list: dict[int, SI.Object] = {}
         self._version: Optional[SI.Version] = None
+        self._split_chunk_bytes_written = 0
         self._read_chunk()
 
     def object_list(self) -> dict[int, "SI.Object"]:
@@ -102,12 +103,8 @@ class SI:
                 if self._file.read(4) != b"OMNI":
                     raise ValueError("Invalid SI file")
             case b"MxHd":
-                self._version, self._buffer_size, buffer_count = struct.unpack(
-                    "<III", self._file.read(12)
-                )
-                logger.debug(
-                    f"{self._version=:08x}, {self._buffer_size=}, {buffer_count=}"
-                )
+                self._version, self._buffer_size, buffer_count = struct.unpack("<III", self._file.read(12))
+                logger.debug(f"{self._version=:08x}, {self._buffer_size=}, {buffer_count=}")
             case b"pad ":
                 self._file.seek(size, io.SEEK_CUR)
             case b"MxOf":
@@ -134,18 +131,12 @@ class SI:
                 presenter = self._read_null_terminated_string()
                 self._file.seek(4, io.SEEK_CUR)  # unknown 1
                 name = self._read_null_terminated_string()
-                id, flags, duration, loops, *coords = struct.unpack(
-                    "<2I4x2I9d", self._file.read(92)
-                )
+                id, flags, duration, loops, *coords = struct.unpack("<2I4x2I9d", self._file.read(92))
                 self._file.seek(self._read_uint16(), io.SEEK_CUR)
                 filename: Optional[str] = None
                 file_type: Optional[SI.FileType] = None
                 volume: Optional[int] = None
-                if (
-                    type != SI.Type.Presenter
-                    and type != SI.Type.World
-                    and type != SI.Type.Animation
-                ):
+                if type != SI.Type.Presenter and type != SI.Type.World and type != SI.Type.Animation:
                     filename = self._read_null_terminated_string()
                     self._file.seek(12, io.SEEK_CUR)  # unknown 26 - 28
                     file_type = SI.FileType(self._read_uint32())
@@ -170,16 +161,18 @@ class SI:
                 self._object_list[id] = obj
                 logger.debug(obj)
             case b"MxCh":
-                flags, id, total_size = struct.unpack(
-                    "<HI4xI", self._file.read(CHUNK_HEADER_SIZE)
-                )
+                flags, id, total_size = struct.unpack("<HI4xI", self._file.read(CHUNK_HEADER_SIZE))
                 size_without_header = size - CHUNK_HEADER_SIZE
                 data = self._file.read(size_without_header)
                 if not flags & SI.ChunkFlags.End:
                     obj = self._object_list[id]
                     obj.data.extend(data)
-                    if obj.first_chunk_size < 0:
-                        obj.first_chunk_size = total_size
+                    if self._split_chunk_bytes_written == 0:
+                        obj.chunk_sizes.append(total_size)
+                    if flags & SI.ChunkFlags.Split:
+                        self._split_chunk_bytes_written += size_without_header
+                        if self._split_chunk_bytes_written >= total_size:
+                            self._split_chunk_bytes_written = 0
             case _:
                 raise ValueError(f"Unknown chunk type: {magic}")
 
