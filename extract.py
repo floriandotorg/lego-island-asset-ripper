@@ -41,8 +41,7 @@ def write_flc(dest_file: io.BufferedIOBase, obj: SI.Object) -> None:
         dest_file.write(chunk[20:])
 
 
-def write_flc_sprite_sheet(src_file: io.BufferedIOBase, filename: str) -> None:
-    flc = FLC(src_file)
+def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
     with open(filename, "wb") as file:
         width = flc.width()  # Assuming width from STL format
         height = flc.height() * len(flc.frames())  # Calculate height based on RGB data
@@ -97,7 +96,8 @@ def write_si(filename: str, obj: SI.Object) -> bool:
             mem_file = io.BytesIO()
             write_flc(mem_file, obj)
             mem_file.seek(0)
-            write_flc_sprite_sheet(mem_file, f"extract/{filename}_{obj.id}.bmp")
+            flc = FLC(mem_file)
+            write_flc_sprite_sheet(flc, f"extract/{filename}_{flc.fps()}fps_{obj.id}.bmp")
             mem_file.seek(0)
             with open(f"extract/{filename}_{obj.id}.flc", "wb") as file:
                 file.write(mem_file.getvalue())

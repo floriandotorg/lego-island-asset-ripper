@@ -59,7 +59,7 @@ class FLC:
         self._file = file
         self._frames: list[bytes] = []
         self._palette: list[FLC.Color] = [FLC.Color(0, 0, 0)] * 256
-        size, type, frames, self._width, self._height = struct.unpack("<IHHHH116x", self._file.read(128))
+        size, type, frames, self._width, self._height, self._delay_ms = struct.unpack("<IHHHH4xI108x", self._file.read(128))
         logger.debug(f"{size=:x} {type=:x} {frames=} {self._width=} {self._height=}")
         if type != 0xAF12:
             raise ValueError(f"Invalid FLC file: {type:x}")
@@ -74,6 +74,9 @@ class FLC:
 
     def frames(self) -> list[bytes]:
         return self._frames
+
+    def fps(self) -> float:
+        return 1000 / self._delay_ms
 
     def _read_chunk(self) -> None:
         chunk_size, chunk_type = struct.unpack("<IH", self._file.read(6))
