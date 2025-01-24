@@ -1,4 +1,6 @@
 *.iso
+*.flc
+*.bmp
 extract/
 
 # Byte-compiled / optimized / DLL files
