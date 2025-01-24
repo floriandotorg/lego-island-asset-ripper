@@ -67,7 +67,7 @@ class ISO9660:
         ISO9660 = 1
         Joliet = 2
 
-    def __init__(self, path: str, variant: Variant = Variant.ISO9660) -> None:
+    def __init__(self, path: str, variant: Variant = Variant.Joliet) -> None:
         self.path_to_loc: dict[str, dict[str, int]] = {}
         self.file = open(path, "rb")
         self.mm = mmap.mmap(self.file.fileno(), length=0, access=mmap.ACCESS_READ)
