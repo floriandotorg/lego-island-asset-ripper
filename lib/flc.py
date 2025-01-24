@@ -158,4 +158,4 @@ class FLC:
                 raise ValueError(f"Error: frame length mismatch {len(frame)} != {len(self._frames[0])}")
             self._frames.append(frame)
         else:
-            raise ValueError(f"Invalid FLC file: {chunk_type.name}")
+            raise ValueError(f"Invalid FLC file, invalid chunk type: {FLC.ChunkType(chunk_type).name}")
