@@ -75,8 +75,8 @@ class FLC:
     def frames(self) -> list[bytes]:
         return self._frames
 
-    def fps(self) -> float:
-        return 1000 / self._delay_ms
+    def fps(self) -> int:
+        return 1000 // self._delay_ms
 
     def _read_chunk(self) -> None:
         chunk_size, chunk_type = struct.unpack("<IH", self._file.read(6))
