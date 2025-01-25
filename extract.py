@@ -106,6 +106,10 @@ def write_si(filename: str, obj: SI.Object) -> bool:
                 logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
                 return False
             return True
+        case SI.FileType.SMK:
+            with open(f"extract/{filename}_{obj.id}.smk", "wb") as file:
+                file.write(obj.data)
+            return True
     return False
 
 
