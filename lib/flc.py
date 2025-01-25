@@ -161,7 +161,7 @@ class FLC:
             self._file.seek(chunk_size - 6, io.SEEK_CUR)
         elif chunk_type == FLC.ChunkType.FLI_COPY:
             frame = bytearray()
-            for pixel in self._file.read(chunk_size - 6):
+            for pixel in self._file.read(self._width * self._height):
                 frame.extend(bytes(self._palette[pixel]))
             self._frames.append(frame)
         elif chunk_type == FLC.ChunkType.BLACK:
