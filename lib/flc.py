@@ -80,6 +80,7 @@ class FLC:
 
     def _read_chunk(self) -> None:
         chunk_size, chunk_type = struct.unpack("<IH", self._file.read(6))
+        end = self._file.tell() + chunk_size - 6
         logger.debug(f"{FLC.ChunkType(chunk_type).name=}")
         if chunk_type == FLC.ChunkType.FRAME_TYPE:
             chunks, must_be_zero = struct.unpack("<H8s", self._file.read(10))
@@ -158,8 +159,7 @@ class FLC:
                 raise ValueError(f"Error: frame length mismatch {len(frame)} != {len(self._frames[0])}")
             self._frames.append(frame)
         elif chunk_type == FLC.ChunkType.PSTAMP:
-            self._file.seek(6, io.SEEK_CUR)
-            self._read_chunk()
+            self._file.seek(chunk_size - 6, io.SEEK_CUR)
         elif chunk_type == FLC.ChunkType.FLI_COPY:
             frame = bytearray()
             for pixel in self._file.read(self._width * self._height):
@@ -169,3 +169,5 @@ class FLC:
             self._frames.append(b"\x00\x00\x00" * self._width * self._height)
         else:
             raise ValueError(f"Unsupported chunk type: {FLC.ChunkType(chunk_type).name}")
+        if self._file.tell() < end:
+            self._file.seek(end)
