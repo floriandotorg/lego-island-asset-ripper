@@ -11,7 +11,7 @@ CHUNK_HEADER_SIZE = 14
 
 
 class FLC:
-    # spell-checker: disable
+    # spell-checker: ignore PSTAMP BRUN MLEV USERSTRING LABELEX PATHMAP
     class ChunkType(IntEnum):
         CEL_DATA = 3
         COLOR_256 = 4
@@ -43,8 +43,6 @@ class FLC:
         FRAME_TYPE = 0xF1FA
         SEGMENT_TABLE = 0xF1FB
         HUFFMAN_TABLE = 0xF1FC
-
-    # spell-checker: enable
 
     @dataclass
     class Color:
