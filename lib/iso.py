@@ -8,7 +8,7 @@ SECTOR_SIZE = 2048
 
 class ISO9660:
     class File(io.BufferedIOBase):
-        def __init__(self, mm, loc, len):
+        def __init__(self, mm: mmap.mmap, loc: int, len: int):
             self.mm = mm
             self.loc = loc
             self.len = len
