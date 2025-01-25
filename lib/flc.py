@@ -90,7 +90,7 @@ class FLC:
                 return
             for _ in range(chunks):
                 self._read_chunk()
-        elif chunk_type == FLC.ChunkType.COLOR_256:
+        elif chunk_type == FLC.ChunkType.COLOR_256 or chunk_type == FLC.ChunkType.COLOR_64:
             packets = struct.unpack("<H", self._file.read(2))[0]
             n = 0
             for _ in range(packets):
@@ -157,5 +157,14 @@ class FLC:
             if len(frame) != len(self._frames[0]):
                 raise ValueError(f"Error: frame length mismatch {len(frame)} != {len(self._frames[0])}")
             self._frames.append(frame)
+        elif chunk_type == FLC.ChunkType.PSTAMP:
+            self._file.seek(chunk_size - 6, io.SEEK_CUR)
+        elif chunk_type == FLC.ChunkType.FLI_COPY:
+            frame = bytearray()
+            for pixel in self._file.read(chunk_size - 6):
+                frame.extend(bytes(self._palette[pixel]))
+            self._frames.append(frame)
+        elif chunk_type == FLC.ChunkType.BLACK:
+            self._frames.append(b"\x00\x00\x00" * self._width * self._height)
         else:
             raise ValueError(f"Invalid FLC file, invalid chunk type: {FLC.ChunkType(chunk_type).name}")
