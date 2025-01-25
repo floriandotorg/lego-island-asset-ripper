@@ -130,8 +130,8 @@ class FLC:
                         packets = opcode
                         break
                     elif code == 0b10:
-                        raise ValueError("Invalid FLC file: unsupported opcode")
-                        # last_value = opcode & 0xFF
+                        pos = (line * self._width + self._width - 1) * 3
+                        frame[pos : pos + 3] = bytes(self._palette[opcode & 0xFF])
                     elif code == 0b11:
                         line -= opcode - 2**16
                     else:
