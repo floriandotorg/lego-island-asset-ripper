@@ -1,8 +1,9 @@
 import io
 import logging
-import os.path
+import os
 import struct
 import sys
+from multiprocessing import Pool
 from tkinter import filedialog
 
 from lib.flc import FLC
@@ -71,7 +72,6 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
         )
 
         pad = b"\x00" * ((4 - (width * 3) % 4) % 4)
-        print(pad)
 
         for frame in flc.frames():
             bgr_frame = bytearray(len(frame))
@@ -135,18 +135,26 @@ def get_iso_path() -> str:
     return path
 
 
-exported_files = 0
-with ISO9660(get_iso_path()) as iso:
-    for file in iso.filelist():
-        filename = os.path.basename(file)
-        if filename.endswith(".SI"):
-            logger.info(f"Open: {filename}")
-            try:
-                si = SI(iso.open(file))
-            except ValueError:
-                logger.error(f"Error opening {filename}")
-                continue
-            for obj in si.object_list().values():
-                if write_si(filename, obj):
-                    exported_files += 1
-logger.info(f"Exported {exported_files} files")
+def process_file(file: str) -> int:
+    exported_files = 0
+    with ISO9660(get_iso_path()) as iso:
+        logger.info(f"Open: {file}")
+        try:
+            si = SI(iso.open(file))
+        except ValueError:
+            logger.error(f"Error opening {file}")
+            return 0
+        for obj in si.object_list().values():
+            if write_si(os.path.basename(file), obj):
+                exported_files += 1
+    return exported_files
+
+
+if __name__ == "__main__":
+    with ISO9660(get_iso_path()) as iso:
+        files = [file for file in iso.filelist() if file.endswith(".SI")]
+
+    with Pool(processes=os.cpu_count()) as pool:
+        exported_files = sum(pool.map(process_file, files))
+
+    logger.info(f"Exported {exported_files} files")
