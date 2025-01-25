@@ -44,34 +44,33 @@ def write_flc(dest_file: io.BufferedIOBase, obj: SI.Object) -> None:
 
 def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
     with open(filename, "wb") as file:
-        width = flc.width()  # Assuming width from STL format
-        height = flc.height() * len(flc.frames())  # Calculate height based on RGB data
-        header_size = 54  # Standard BMP header size
-        image_size = width * height * 3  # 3 bytes per pixel (RGB)
-        file_size = header_size + image_size
+        width = flc.width()
+        height = flc.height() * len(flc.frames())
+        pad = b"\x00" * ((4 - (width * 3) % 4) % 4)
+        header_size = 54
+        bf_size = header_size + (width * 3 + len(pad)) * height
+        bi_size = bf_size - header_size
 
         # BMP Header (14 bytes)
-        file.write(struct.pack("<2sIHHI", b"BM", file_size, 0, 0, header_size))
+        file.write(struct.pack("<2sIHHI", b"BM", bf_size, 0, 0, header_size))
 
         # DIB Header (40 bytes)
         file.write(
             struct.pack(
-                "<IIIHHIIIIII",
+                "<IIiHHIIIIII",
                 40,  # DIB header size
                 width,  # Width
-                height,  # Height
+                -height,  # Height
                 1,  # Color planes
                 24,  # Bits per pixel (RGB = 24)
                 0,  # No compression
-                image_size,  # Image size
+                bi_size,  # Image size
                 0,  # Horizontal resolution (pixels/meter)
                 0,  # Vertical resolution (pixels/meter)
                 0,  # Number of colors in palette
                 0,  # Important colors
             )
         )
-
-        pad = b"\x00" * ((4 - (width * 3) % 4) % 4)
 
         for frame in flc.frames():
             bgr_frame = bytearray(len(frame))
@@ -82,7 +81,7 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
             bf[2::3] = rf[0::3]
 
             if pad:
-                for n in range(height):
+                for n in range(flc.height()):
                     file.write(bgr_frame[n * width * 3 : (n + 1) * width * 3])
                     file.write(pad)
             else:
