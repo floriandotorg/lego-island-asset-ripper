@@ -70,7 +70,8 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
             )
         )
 
-        pad = b"\x00" * (4 - (width * 3) % 4)
+        pad = b"\x00" * ((4 - (width * 3) % 4) % 4)
+        print(pad)
 
         for frame in flc.frames():
             bgr_frame = bytearray(len(frame))
