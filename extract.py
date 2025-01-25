@@ -70,6 +70,8 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
             )
         )
 
+        pad = b"\x00" * (4 - (width * 3) % 4)
+
         for frame in flc.frames():
             bgr_frame = bytearray(len(frame))
             bf = memoryview(bgr_frame)
@@ -77,7 +79,13 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
             bf[0::3] = rf[2::3]
             bf[1::3] = rf[1::3]
             bf[2::3] = rf[0::3]
-            file.write(bgr_frame)
+
+            if pad:
+                for n in range(height):
+                    file.write(bgr_frame[n * width * 3 : (n + 1) * width * 3])
+                    file.write(pad)
+            else:
+                file.write(bgr_frame)
 
 
 def write_si(filename: str, obj: SI.Object) -> bool:

@@ -115,6 +115,8 @@ class FLC:
                     else:
                         frame.extend(bytes(self._palette[struct.unpack("<B", self._file.read(1))[0]]) * count)
                     pixels += abs(count)
+            if len(frame) != self._width * self._height * 3:
+                raise ValueError(f"Error: frame length mismatch {len(frame)}")
             self._frames.append(frame)
         elif chunk_type == FLC.ChunkType.DELTA_FLC:
             frame = bytearray(self._frames[-1])
@@ -153,8 +155,8 @@ class FLC:
                     else:
                         raise ValueError("Invalid FLC file: count is 0")
                 line += 1
-            if len(frame) != len(self._frames[0]):
-                raise ValueError(f"Error: frame length mismatch {len(frame)} != {len(self._frames[0])}")
+            if len(frame) != self._width * self._height * 3:
+                raise ValueError(f"Error: frame length mismatch {len(frame)}")
             self._frames.append(frame)
         elif chunk_type == FLC.ChunkType.PSTAMP:
             self._file.seek(chunk_size - 6, io.SEEK_CUR)
