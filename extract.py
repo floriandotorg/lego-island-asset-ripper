@@ -44,8 +44,8 @@ def write_flc(dest_file: io.BufferedIOBase, obj: SI.Object) -> None:
 
 def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
     with open(filename, "wb") as file:
-        width = flc.width()
-        height = flc.height() * len(flc.frames())
+        width = flc.width
+        height = flc.height * len(flc.frames)
         pad = b"\x00" * ((4 - (width * 3) % 4) % 4)
         header_size = 54
         bf_size = header_size + (width * 3 + len(pad)) * height
@@ -72,7 +72,7 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
             )
         )
 
-        for frame in flc.frames():
+        for frame in flc.frames:
             bgr_frame = bytearray(len(frame))
             bf = memoryview(bgr_frame)
             rf = memoryview(frame)
@@ -81,7 +81,7 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
             bf[2::3] = rf[0::3]
 
             if pad:
-                for n in range(flc.height()):
+                for n in range(flc.height):
                     file.write(bgr_frame[n * width * 3 : (n + 1) * width * 3])
                     file.write(pad)
             else:
@@ -109,7 +109,7 @@ def write_si(filename: str, obj: SI.Object) -> bool:
             mem_file.seek(0)
             try:
                 flc = FLC(mem_file)
-                write_flc_sprite_sheet(flc, f"extract/{filename}_{obj.id}_frames{len(flc.frames())}_fps{flc.fps()}.bmp")
+                write_flc_sprite_sheet(flc, f"extract/{filename}_{obj.id}_frames{len(flc.frames)}_fps{flc.fps}.bmp")
             except Exception as e:
                 logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
                 return False

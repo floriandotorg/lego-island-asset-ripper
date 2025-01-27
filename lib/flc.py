@@ -64,15 +64,19 @@ class FLC:
         for _ in range(frames):
             self._read_chunk()
 
+    @property
     def width(self) -> int:
         return self._width
 
+    @property
     def height(self) -> int:
         return self._height
 
+    @property
     def frames(self) -> list[bytes]:
         return self._frames
 
+    @property
     def fps(self) -> int:
         return 1000 // self._delay_ms
 
