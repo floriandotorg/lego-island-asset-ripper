@@ -1,6 +1,7 @@
 *.iso
 *.flc
 *.bmp
+*.avi
 extract/
 NOTES.md
 
