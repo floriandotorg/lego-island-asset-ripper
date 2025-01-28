@@ -76,6 +76,7 @@ class SI:
         self._split_chunk_bytes_written = 0
         self._read_chunk()
 
+    @property
     def object_list(self) -> dict[int, "SI.Object"]:
         return self._object_list
 

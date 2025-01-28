@@ -119,6 +119,7 @@ class ISO9660:
         self.mm.close()
         self.file.close()
 
+    @property
     def filelist(self) -> list[str]:
         return list(self.path_to_loc.keys())
 

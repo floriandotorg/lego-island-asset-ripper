@@ -143,7 +143,7 @@ def process_file(file: str) -> int:
         except ValueError:
             logger.error(f"Error opening {file}")
             return 0
-        for obj in si.object_list().values():
+        for obj in si.object_list.values():
             if write_si(os.path.basename(file), obj):
                 exported_files += 1
     return exported_files
@@ -151,7 +151,7 @@ def process_file(file: str) -> int:
 
 if __name__ == "__main__":
     with ISO9660(get_iso_path()) as iso:
-        files = [file for file in iso.filelist() if file.endswith(".SI")]
+        files = [file for file in iso.filelist if file.endswith(".SI")]
 
     with Pool(processes=os.cpu_count()) as pool:
         exported_files = sum(pool.map(process_file, files))
