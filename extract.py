@@ -1,6 +1,7 @@
 import io
 import logging
 import os
+import random
 import struct
 import sys
 from multiprocessing import Pool
@@ -76,14 +77,14 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
             bgr_frame = bytearray(len(frame))
             bf = memoryview(bgr_frame)
             rf = memoryview(frame)
-            bf[0::3] = rf[2::3]
-            bf[1::3] = rf[1::3]
-            bf[2::3] = rf[0::3]
+            # Swap R and B:
+            bf[0::3] = rf[2::3]  # B
+            bf[1::3] = rf[1::3]  # G
+            bf[2::3] = rf[0::3]  # R
 
             if pad:
-                for n in range(flc.height):
-                    file.write(bgr_frame[n * width * 3 : (n + 1) * width * 3])
-                    file.write(pad)
+                row_size = width * 3
+                file.write(b"".join(bgr_frame[i : i + row_size] + pad for i in range(0, len(bgr_frame), row_size)))
             else:
                 file.write(bgr_frame)
 
@@ -149,11 +150,21 @@ def process_file(file: str) -> int:
     return exported_files
 
 
+def process_files(files: list[str]) -> int:
+    return sum(process_file(file) for file in files)
+
+
 if __name__ == "__main__":
     with ISO9660(get_iso_path()) as iso:
         files = [file for file in iso.filelist if file.endswith(".SI")]
+        random.shuffle(files)
 
-    with Pool(processes=os.cpu_count()) as pool:
-        exported_files = sum(pool.map(process_file, files))
+    cpus = os.cpu_count()
+    if cpus is None:
+        cpus = 1
+
+    with Pool(processes=cpus) as pool:
+        chunks = [files[i : i + cpus] for i in range(0, len(files), cpus)]
+        exported_files = sum(pool.map(process_files, chunks))
 
     logger.info(f"Exported {exported_files} files")

@@ -114,8 +114,7 @@ class FLC:
                     if count == 0:
                         raise ValueError("Invalid FLC file: count is 0")
                     elif count < 0:
-                        for byte in self._file.read(-count):
-                            frame.extend(bytes(self._palette[byte]))
+                        frame.extend(b"".join(bytes(self._palette[byte]) for byte in self._file.read(-count)))
                     else:
                         frame.extend(bytes(self._palette[struct.unpack("<B", self._file.read(1))[0]]) * count)
                     pixels += abs(count)
@@ -146,15 +145,16 @@ class FLC:
                     pixel += skip
                     if count < 0:
                         p1, p2 = struct.unpack("<BB", self._file.read(2))
-                        for _ in range(-count):
-                            pos = (line * self._width + pixel) * 3
-                            frame[pos : pos + 6] = bytes(self._palette[p1]) + bytes(self._palette[p2])
-                            pixel += 2
+                        pos = (line * self._width + pixel) * 3
+                        frame[pos : pos + 6 * (-count)] = (bytes(self._palette[p1]) + bytes(self._palette[p2])) * (-count)
+                        pixel += 2 * (-count)
                     elif count > 0:
                         p = self._file.read(count * 2)
-                        for n in range(0, count * 2, 2):
-                            pos = (line * self._width + pixel + n) * 3
-                            frame[pos : pos + 6] = bytes(self._palette[p[n]]) + bytes(self._palette[p[n + 1]])
+                        pos_start = (line * self._width + pixel) * 3
+                        frame[pos_start : pos_start + 6 * count] = b''.join(
+                            bytes(self._palette[p[i]]) + bytes(self._palette[p[i + 1]]) 
+                            for i in range(0, count * 2, 2)
+                        )
                         pixel += count * 2
                     else:
                         raise ValueError("Invalid FLC file: count is 0")
