@@ -1,9 +1,10 @@
 import io
 import logging
 import os
-import random
 import struct
 import sys
+from dataclasses import dataclass
+from functools import cache
 from multiprocessing import Pool
 from tkinter import filedialog
 
@@ -135,36 +136,73 @@ def get_iso_path() -> str:
     return path
 
 
-def process_file(file: str) -> int:
-    exported_files = 0
-    with ISO9660(get_iso_path()) as iso:
-        logger.info(f"Open: {file}")
-        try:
-            si = SI(iso.open(file))
-        except ValueError:
-            logger.error(f"Error opening {file}")
-            return 0
-        for obj in si.object_list.values():
-            if write_si(os.path.basename(file), obj):
-                exported_files += 1
-    return exported_files
+@dataclass
+class File:
+    si: SI
+    name: str
+
+    def _obj_weight(self, obj: SI.Object) -> int:
+        match obj.file_type:
+            case SI.FileType.FLC:
+                frames, width, height = struct.unpack("<6xHHH", obj.data[0:12])
+                return (width * height * frames) / 10_000
+            # case SI.FileType.SMK:
+            #     width, height, frames = struct.unpack("<4xIII", obj.data[0:16])
+            #     return (width * height * frames) / 10_000
+            case _:
+                return 10
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    @property
+    @cache
+    def weight(self) -> int:
+        return sum(self._obj_weight(obj) for obj in self.si.object_list.values())
 
 
-def process_files(files: list[str]) -> int:
+def process_file(file: File) -> int:
+    logger.info(f"Extracting {file.name} ..")
+    result = sum(1 if write_si(os.path.basename(file.name), obj) else 0 for obj in file.si.object_list.values())
+    logger.info(f"Extracting {file.name} .. [done]")
+    return result
+
+
+def process_files(files: list[File]) -> int:
     return sum(process_file(file) for file in files)
 
 
+def balanced_chunks(data: list[File], n: int) -> list[list[File]]:
+    data = sorted(data, key=lambda x: x.weight, reverse=True)
+    chunks: list[list[File]] = [[] for _ in range(n)]
+    sums = [0] * n
+    for item in data:
+        i = sums.index(min(sums))
+        chunks[i].append(item)
+        sums[i] += item.weight
+    return chunks
+
+
 if __name__ == "__main__":
+    files: list[File] = []
     with ISO9660(get_iso_path()) as iso:
-        files = [file for file in iso.filelist if file.endswith(".SI")]
-        random.shuffle(files)
+        for file in iso.filelist:
+            if not file.endswith(".SI"):
+                continue
+
+            try:
+                mem_file = io.BytesIO()
+                mem_file.write(iso.open(file).read())
+                mem_file.seek(0, io.SEEK_SET)
+                files.append(File(SI(mem_file), file))
+            except ValueError:
+                logger.error(f"Error opening {file}")
 
     cpus = os.cpu_count()
     if cpus is None:
         cpus = 1
 
     with Pool(processes=cpus) as pool:
-        chunks = [files[i : i + cpus] for i in range(0, len(files), cpus)]
-        exported_files = sum(pool.map(process_files, chunks))
+        exported_files = sum(pool.map(process_files, balanced_chunks(files, cpus)))
 
     logger.info(f"Exported {exported_files} files")
