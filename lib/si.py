@@ -144,6 +144,9 @@ class SI:
                     self._file.seek(8, io.SEEK_CUR)  # unknown 29 - 30
                     if type == SI.FileType.WAV:
                         volume = self._read_uint32()
+                (loc_x, loc_y, loc_z) = tuple(map(float, coords[:3]))
+                (dir_x, dir_y, dir_z) = tuple(map(float, coords[3:6]))
+                (up_x, up_y, up_z) = tuple(map(float, coords[6:]))
                 obj = SI.Object(
                     type,
                     presenter,
@@ -152,9 +155,9 @@ class SI:
                     flags,
                     duration,
                     loops,
-                    location=tuple(coords[:3]),
-                    direction=tuple(coords[3:6]),
-                    up=tuple(coords[6:]),
+                    (loc_x, loc_y, loc_z),
+                    (dir_x, dir_y, dir_z),
+                    (up_x, up_y, up_z),
                     filename=filename,
                     file_type=file_type,
                     volume=volume,
