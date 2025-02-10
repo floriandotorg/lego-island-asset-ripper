@@ -120,7 +120,7 @@ class SI:
                     if self._version == SI.Version.Version2_1:
                         raise ValueError("Version 2.1 is not supported")
                         # self.file.seek(4, io.SEEK_CUR)
-                    list_variation = self._read_uint32()
+                    list_variation = self._file.read(4)
                     if list_variation == b"Act\0" or list_variation == b"RAND":
                         if list_variation == b"RAND":
                             self._file.seek(5, io.SEEK_CUR)
@@ -178,7 +178,7 @@ class SI:
                         if self._split_chunk_bytes_written >= total_size:
                             self._split_chunk_bytes_written = 0
             case _:
-                raise ValueError(f"Unknown chunk type: {magic}")
+                raise ValueError(f"Unknown chunk type: {magic} at {pos=:08x}")
 
         while (self._file.tell() + HEADER_SIZE) < end:
             if self._buffer_size > 0:
