@@ -4,13 +4,14 @@ import os
 import struct
 import sys
 from dataclasses import dataclass
-from functools import cache
 from multiprocessing import Pool
 from tkinter import filedialog
+from typing import Union
 
 from lib.flc import FLC
 from lib.iso import ISO9660
 from lib.si import SI
+from lib.smk import SMK
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -90,6 +91,104 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
                 file.write(bgr_frame)
 
 
+def write_smk_avi(video: Union[SMK, FLC], filename: str) -> None:
+    with open(filename, "wb") as file:
+        pad = b"\x00" * ((4 - (video.width * 3) % 4) % 4)
+        total_frame_size = (video.width + len(pad)) * video.height * 3
+
+        file.write(
+            struct.pack(
+                "<4sI4s4sI4s4sIIIIIIIIIII16x4sI4s4sI4s4sIIIIIIIIIIII4sIIIiHHIIIIII",
+                b"RIFF",  # RIFF signature
+                0,  # File size (filled later)
+                b"AVI ",  # AVI signature
+                b"LIST",
+                4 + 64 + 124,  # Size of LIST chunk
+                b"hdrl",
+                b"avih",
+                56,  # Size of avih chunk
+                1_000_000 // int(video.fps),  # Microseconds per frame
+                total_frame_size,  # Max bytes per second
+                1,  # Padding granularity
+                0,  # Flags
+                len(video.frames),  # Total frames
+                0,  # Initial frames
+                1,  # Number of streams
+                total_frame_size,  # Suggested buffer size
+                video.width,  # Width
+                video.height,  # Height
+                b"LIST",
+                116,
+                b"strl",
+                b"strh",
+                56,
+                b"vids",  # Video stream type
+                b"DIB ",  # Video codec (uncompressed)
+                0,  # Flags
+                0,  # Priority + Language
+                0,  # Initial frames
+                1,  # Scale
+                int(video.fps),  # Rate
+                0,  # Start
+                len(video.frames),  # Length
+                total_frame_size,  # Suggested buffer size
+                0,  # Quality
+                total_frame_size,  # Sample size
+                0,  # rcFrame
+                0,  # rcFrame: right, bottom
+                b"strf",
+                40,
+                40,
+                video.width,  # Width
+                -video.height,  # Height (negative for top-down)
+                1,  # Color planes
+                24,  # Bits per pixel (RGB = 24)
+                0,  # No compression
+                total_frame_size,  # Image size
+                0,  # Horizontal resolution (pixels/meter)
+                0,  # Vertical resolution (pixels/meter)
+                0,  # Number of colors in palette
+                0,  # Important colors
+            )
+        )
+
+        file.write(
+            struct.pack(
+                "<4sI4s",
+                b"LIST",
+                len(video.frames) * (total_frame_size + 8) + 4,
+                b"movi",
+            )
+        )
+
+        for frame in video.frames:
+            file.write(
+                struct.pack(
+                    "<4sI",
+                    b"00db",
+                    total_frame_size,
+                )
+            )
+
+            bgr_frame = bytearray(len(frame))
+            bf = memoryview(bgr_frame)
+            rf = memoryview(frame)
+            # Swap R and B:
+            bf[0::3] = rf[2::3]  # B
+            bf[1::3] = rf[1::3]  # G
+            bf[2::3] = rf[0::3]  # R
+
+            if pad:
+                row_size = video.width * 3
+                file.write(b"".join(bgr_frame[i : i + row_size] + pad for i in range(0, len(bgr_frame), row_size)))
+            else:
+                file.write(bgr_frame)
+
+        file_size = file.tell()
+        file.seek(4, io.SEEK_SET)
+        file.write(struct.pack("<I", file_size - 8))
+
+
 def write_si(filename: str, obj: SI.Object) -> bool:
     match obj.file_type:
         case SI.FileType.WAV:
@@ -112,6 +211,7 @@ def write_si(filename: str, obj: SI.Object) -> bool:
             try:
                 flc = FLC(mem_file)
                 write_flc_sprite_sheet(flc, f"extract/{filename}_{obj.id}_frames{len(flc.frames)}_fps{flc.fps}.bmp")
+                write_smk_avi(flc, f"extract/{filename}_{obj.id}.avi")
             except Exception as e:
                 logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
                 return False
@@ -119,6 +219,8 @@ def write_si(filename: str, obj: SI.Object) -> bool:
         case SI.FileType.SMK:
             with open(f"extract/{filename}_{obj.id}.smk", "wb") as file:
                 file.write(obj.data)
+            smk = SMK(io.BytesIO(obj.data))
+            write_smk_avi(smk, f"extract/{filename}_{obj.id}.avi")
             return True
     return False
 
@@ -140,25 +242,26 @@ def get_iso_path() -> str:
 class File:
     si: SI
     name: str
+    weight: int
 
     def _obj_weight(self, obj: SI.Object) -> int:
         match obj.file_type:
             case SI.FileType.FLC:
                 frames, width, height = struct.unpack("<6xHHH", obj.data[0:12])
                 return (width * height * frames) / 10_000
-            # case SI.FileType.SMK:
-            #     width, height, frames = struct.unpack("<4xIII", obj.data[0:16])
-            #     return (width * height * frames) / 10_000
+            case SI.FileType.SMK:
+                width, height, frames = struct.unpack("<4xIII", obj.data[0:16])
+                return (width * height * frames) / 2_000
             case _:
                 return 10
 
+    def __init__(self, si: SI, name: str):
+        self.si = si
+        self.name = name
+        self.weight = sum(self._obj_weight(obj) for obj in self.si.object_list.values())
+
     def __hash__(self) -> int:
         return hash(self.name)
-
-    @property
-    @cache
-    def weight(self) -> int:
-        return sum(self._obj_weight(obj) for obj in self.si.object_list.values())
 
 
 def process_file(file: File) -> int:

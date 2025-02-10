@@ -71,27 +71,35 @@ class SMK:
 
         self._file.seek(end_of_trees)
 
-        blocks_per_frame = math.ceil(self._width / 4) * math.ceil(self._height / 4)
-
         if self._width % 4 != 0 or self._height % 4 != 0:
-            raise ValueError("Width and height must be divisible by 4 or these idiots need to fix their code")
+            raise ValueError("Width and height must be divisible by 4 or someone needs to fix his code")
+
+        blocks_per_frame = math.ceil(self._width / 4) * math.ceil(self._height / 4)
 
         self._frames: list[bytes] = []
         for frame in range(self._num_frames):
+            logger.debug(f"Processing frame {frame}")
+
+            end_of_frame = self._file.tell() + frame_sizes[frame]
+
             if has_palette[frame]:
                 self._palette = [self.Color(0, 0, 0)] * 256
                 self._read_palette()
 
             self._init_bit_reader()
+            self._mmap.caches = self._mclr.caches = self._full.caches = self._type.caches = (0, 0, 0)
 
             current_block = 0
-            current_frame = bytearray(self._frames[-1] if self._frames else b"\xff" * self._width * self._height * 3)
+            current_frame = bytearray(self._frames[-1] if self._frames else b"\xff\x00\xff" * self._width * self._height)
             while current_block < blocks_per_frame:
                 current_block += self._read_chain(current_frame, current_block)
 
+                if current_block > blocks_per_frame:
+                    raise ValueError(f"Current block {current_block} on frame {frame} is greater than blocks per frame {blocks_per_frame}")
+
             self._frames.append(bytes(current_frame))
 
-            break
+            self._file.seek(end_of_frame, io.SEEK_SET)
 
     @property
     def frames(self) -> list[bytes]:
@@ -114,37 +122,35 @@ class SMK:
         type = SMK.BlockType(block & 0x03)
         size = SMK._sizetable[(block & 0xFC) >> 2]
         extra = (block & 0xFF00) >> 8
-        print(f"{block=:04x} {type.name} size={(block & 0xFC) >> 2} ({size}) {extra=:x}")
+        logger.debug(f"{block=:04x} {type.name} size={(block & 0xFC) >> 2} ({size}) {extra=:x}")
         match type:
             case SMK.BlockType.Mono:
                 for n in range(size):
                     colors = self._read_bits_until_found(self._mclr)
                     map = self._read_bits_until_found(self._mmap)
-                    color1 = bytes(self._palette[colors & 0xFF])
-                    color2 = bytes(self._palette[colors >> 8 & 0xFF])
+                    color2 = bytes(self._palette[colors & 0xFF])
+                    color1 = bytes(self._palette[colors >> 8 & 0xFF])
                     color_rgb = bytearray(b"\00" * 16 * 3)
-                    for n in range(16):
-                        color_rgb[n * 3 : n * 3 + 3] = color1 if map & 0x01 else color2
+                    for m in range(16):
+                        color_rgb[m * 3 : m * 3 + 3] = color1 if map & 0x01 else color2
                         map >>= 1
                     y_offset = (current_block + n) // math.ceil(self._width / 4) * 4
                     x_offset = (current_block + n) % math.ceil(self._width / 4) * 4
                     for y in range(4):
                         p = (x_offset + (y_offset + y) * self._width) * 3
-                        frame[p : p + 3 * 4] = color_rgb
+                        frame[p : p + 3 * 4] = color_rgb[y * 4 * 3 : (y + 1) * 4 * 3]
             case SMK.BlockType.Full:
                 for n in range(size):
                     colors_rgb = bytearray(b"\00" * 16 * 3)
-                    for n in [2, 0, 6, 4, 10, 8, 14, 12]:
-                        print("full tree")
+                    for m in [2, 0, 6, 4, 10, 8, 14, 12]:
                         colors = self._read_bits_until_found(self._full)
-                        print("full tree end")
-                        colors_rgb[n * 3 : n * 3 + 3] = bytes(self._palette[colors & 0xFF])
-                        colors_rgb[n * 3 + 3 : n * 3 + 6] = bytes(self._palette[colors >> 8 & 0xFF])
+                        colors_rgb[m * 3 : m * 3 + 3] = bytes(self._palette[colors & 0xFF])
+                        colors_rgb[m * 3 + 3 : m * 3 + 6] = bytes(self._palette[colors >> 8 & 0xFF])
                     y_offset = (current_block + n) // math.ceil(self._width / 4) * 4
                     x_offset = (current_block + n) % math.ceil(self._width / 4) * 4
                     for y in range(4):
                         p = (x_offset + (y_offset + y) * self._width) * 3
-                        frame[p : p + 3 * 4] = colors_rgb
+                        frame[p : p + 3 * 4] = colors_rgb[y * 4 * 3 : (y + 1) * 4 * 3]
             case SMK.BlockType.Void:
                 pass
             case SMK.BlockType.Solid:
@@ -155,21 +161,15 @@ class SMK:
                     for y in range(4):
                         p = (x_offset + (y_offset + y) * self._width) * 3
                         frame[p : p + 3 * 4] = colors_rgb
+        if len(frame) != self._width * self._height * 3:
+            raise ValueError(f"Frame size mismatch: {len(frame)} != {self._width * self._height * 3}")
         return size
-
-    def print_table(self, data: dict[str, int]) -> None:
-        max_width = max(len(k) for k in data.keys())
-        print(f"{'Key'.ljust(max_width)} | {'Value'.ljust(10)}")
-        print("-" * (max_width + 10 + 3))
-
-        for k, v in data.items():
-            print(f"{k.ljust(max_width)} | {f"0b{v:08b}".ljust(10)}")
 
     def _read_palette(self) -> None:
         prev_palette = list(self._palette)
-        palette_end = self._file.tell() + self._file.read(1)[0] * 4 - 1
+        palette_end = self._file.tell() + self._file.read(1)[0] * 4
         n = 0
-        while self._file.tell() <= palette_end:
+        while self._file.tell() < palette_end and n < 256:
             block = self._file.read(1)[0]
             if block & 0x80:
                 c = (block & 0x7F) + 1
@@ -183,12 +183,13 @@ class SMK:
                     n += 1
                 logger.debug(f"read {c} colors starting at {s}")
             else:
-                b = (block & 0x3F) + 1
+                r = block & 0x3F
                 g = self._file.read(1)[0] & 0x3F
-                r = self._file.read(1)[0] & 0x3F
+                b = self._file.read(1)[0] & 0x3F
                 self._palette[n] = SMK.Color(self._palmap[r], self._palmap[g], self._palmap[b])
+                logger.debug(f"read {n} {self._palette[n]}")
                 n += 1
-                logger.debug(f"read {SMK.Color(self._palmap[r], self._palmap[g], self._palmap[b])}")
+        self._file.seek(palette_end, io.SEEK_SET)
 
     def _init_bit_reader(self) -> None:
         self._current_byte = self._file.read(1)[0]
@@ -222,24 +223,6 @@ class SMK:
         one: Optional["SMK.HuffmanNode"] = None
         caches: Optional[tuple[int, int, int]] = None
         cached: bool = False
-
-        def __repr__(self) -> str:
-            return self._repr_helper()
-
-        def _repr_helper(self, prefix: str = "", is_left: bool = True) -> str:
-            result = []
-
-            branch = "└── " if is_left else "┌── "
-            result.append(prefix + branch + (f"[{self.value}]" if self.value is not None else "*"))
-
-            new_prefix = prefix + ("    " if is_left else "│   ")
-
-            if self.one:
-                result.append(self.one._repr_helper(new_prefix, False))
-            if self.zero:
-                result.append(self.zero._repr_helper(new_prefix, True))
-
-            return "\n".join(result)
 
     def _build_huffman(self, high_byte_tree: Optional[HuffmanNode] = None, low_byte_tree: Optional[HuffmanNode] = None, caches: Optional[tuple[int, int, int]] = None) -> HuffmanNode:
         if (high_byte_tree is None and low_byte_tree is None) and self._read_bit() == 0:
@@ -277,14 +260,10 @@ class SMK:
                 if node.cached:
                     if tree.caches is None:
                         raise ValueError("No caches")
-
-                    print(f"cache: {node.value:x}")
-
                     value = tree.caches[node.value]
 
                 if tree.caches is not None and tree.caches[0] != value:
                     tree.caches = (value, tree.caches[0], tree.caches[1])
-                    print(f"caches: {tree.caches[0]:x} {tree.caches[1]:x} {tree.caches[2]:x}")
 
                 return value
 
@@ -309,51 +288,18 @@ class SMK:
                     current_node.cached = True
                     current_node.value = tree.caches.index(current_node.value)
 
-    # def _huffman_tree_to_table(self, tree: HuffmanNode) -> dict[str, int]:
-    #     table: dict[str, int] = {}
-    #     self._huffman_tree_to_table_helper(tree, 0, 0, table)
-    #     return table
-
-    # def _huffman_tree_to_table_helper(self, tree: HuffmanNode, key: int, key_length: int, table: dict[str, int]) -> None:
-    #     if tree.value is not None:
-    #         key_str = f"{key:0{key_length}b}"
-    #         if key_str in table:
-    #             raise ValueError(f"Duplicate key: {key_str}")
-    #         table[key_str] = tree.value
-    #     else:
-    #         if tree.zero:
-    #             self._huffman_tree_to_table_helper(tree.zero, key << 1, key_length + 1, table)
-    #         if tree.one:
-    #             self._huffman_tree_to_table_helper(tree.one, (key << 1) | 1, key_length + 1, table)
-
     def _read_big_tree(self) -> HuffmanNode:
         if self._read_bit() == 0:
             raise ValueError("Big tree is not present")
 
         low_byte_tree = self._build_huffman()
-        # logger.debug("\n" + repr(low_byte_tree))
-        # low_byte_table = self._huffman_tree_to_table(low_byte_tree)
-        # self.print_table(low_byte_table)
-
         high_byte_tree = self._build_huffman()
-        # logger.debug("\n" + repr(high_byte_tree))
-        # high_byte_table = self._huffman_tree_to_table(high_byte_tree)
-        # self.print_table(high_byte_table)
 
         c1 = self._read_8_bits() | (self._read_8_bits() << 8)
         c2 = self._read_8_bits() | (self._read_8_bits() << 8)
         c3 = self._read_8_bits() | (self._read_8_bits() << 8)
 
-        print(f"cache 0: {c1:x}")
-        print(f"cache 1: {c2:x}")
-        print(f"cache 2: {c3:x}")
-
         big_tree = self._build_huffman(high_byte_tree, low_byte_tree, (c1, c2, c3))
-        # logger.debug("\n" + repr(big_tree))
-        # big_table = self._huffman_tree_to_table(big_tree)
-        # self.print_table(big_table)
-
-        big_tree.caches = (0, 0, 0)
 
         if self._read_bit() != 0:
             raise ValueError("Error reading big tree")
