@@ -106,7 +106,7 @@ class ISO9660:
                 name = name_bytes.decode("ascii")
             elif self.variant == ISO9660.Variant.Joliet:
                 name = name_bytes.decode("utf-16be")
-            name = name.strip(";1")
+            name = name[:-2] if name.endswith(";1") else name
             filename = path + name
             self.path_to_loc[filename] = {"loc": loc, "len": len}
             if flags & 0b10:
