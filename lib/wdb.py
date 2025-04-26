@@ -2,6 +2,7 @@ import io
 import logging
 import struct
 from dataclasses import dataclass
+from enum import IntEnum
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,13 @@ class WDB:
         width: int
         height: int
         image: bytes
+
+    class Shading(IntEnum):
+        WireFrame = 0
+        UnlitFlat = 1
+        Flat = 2
+        Gouraud = 3
+        Phong = 4
 
     _images: list[Gif] = []
     _textures: list[Gif] = []
@@ -58,6 +66,12 @@ class WDB:
     def _read_vertex(self) -> tuple[float, float, float]:
         x, y, z = struct.unpack("<fff", self._file.read(12))
         return x, y, z
+
+    def _read_vertices(self, count) -> list[tuple[float, float, float]]:
+        vertices = []
+        for _ in range(count):
+            vertices.append(self._read_vertex())
+        return vertices
 
     def _read_animation_tree(self):
         animation_data_name = self._read_str()
@@ -124,6 +138,42 @@ class WDB:
 
         for _ in range(num_children):
             self._read_animation_tree()
+
+    def _read_lod(self):
+        unknown8 = struct.unpack("<I", self._file.read(4))[0]
+        if unknown8 & 0xffffff04:
+            raise Exception(f"{unknown8=:08x}")
+
+        num_meshes = struct.unpack("<I", self._file.read(4))[0]
+        if not num_meshes:
+            # Clear Flag bit4?
+            raise Exception(f"{num_meshes=}")
+
+        # Set Flag bit4?
+        num_verts, num_normals = struct.unpack("<HH", self._file.read(4))
+        num_normals //= 2
+        num_text_verts = struct.unpack("<I", self._file.read(4))[0]
+
+        vertices = self._read_vertices(num_verts)
+        normals = self._read_vertices(num_normals)
+
+        uv_coordinates = []
+        for _ in range(num_text_verts):
+            uv_coordinates.append(struct.unpack("<ff", self._file.read(8)))
+
+        for _ in range(num_meshes):
+            num_polys, num_mesh_verts = struct.unpack("<HH", self._file.read(4))
+            vertex_indices = [struct.unpack("<III", self._file.read(12)) for _ in range(num_polys)]
+            num_texture_indices = struct.unpack("<I", self._file.read(4))[0]
+            if num_texture_indices > 0:
+                assert num_texture_indices == num_polys * 3
+                texture_indices = [struct.unpack("<III", self._file.read(12)) for _ in range(num_polys)]
+
+            red, green, blue, alpha, shading = struct.unpack("<bbbfb3x", self._file.read(3 + 4 + 4))
+            texture_name = self._read_str()
+            material_name = self._read_str()
+            shading = WDB.Shading(shading)
+            logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
 
     def __init__(self, file: io.BufferedIOBase):
         self._file = file
@@ -246,6 +296,11 @@ class WDB:
                 logger.debug(f"{roi_name=}")
             else:
                 num_lods = struct.unpack("<I", self._file.read(4))[0]
+                logger.debug(f"{num_lods=}")
+                if num_lods != 0:
+                    end_component_offset = struct.unpack("<I", self._file.read(4))[0]
+                    for _ in range(num_lods):
+                        self._read_lod()
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
