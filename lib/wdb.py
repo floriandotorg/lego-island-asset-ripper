@@ -16,6 +16,7 @@ class WDB:
 
     _images: list[Gif] = []
     _textures: list[Gif] = []
+    _models: list[Gif] = []
 
     @property
     def images(self) -> list[Gif]:
@@ -24,6 +25,10 @@ class WDB:
     @property
     def textures(self) -> list[Gif]:
         return self._textures
+
+    @property
+    def models(self) -> list[Gif]:
+        return self._models
 
     def _read_gif(self, title: str | None = None) -> Gif:
         if title is None:
@@ -50,36 +55,116 @@ class WDB:
         length = struct.unpack("<I", self._file.read(4))[0]
         return self._file.read(length).decode("ascii").rstrip("\x00")
 
+    def _read_vertex(self) -> tuple[float, float, float]:
+        x, y, z = struct.unpack("<fff", self._file.read(12))
+        return x, y, z
+
+    def _read_animation_tree(self):
+        animation_data_name = self._read_str()
+        logger.debug(f"{animation_data_name=}")
+
+        num_translation_keys = struct.unpack("<H", self._file.read(2))[0]
+        logger.debug(f"{num_translation_keys=}")
+
+        for _ in range(num_translation_keys):
+            time_and_flags = struct.unpack("<I", self._file.read(4))[0]
+            flags = time_and_flags >> 24
+            time = time_and_flags & 0xFFFFFF
+
+            some_vertex = self._read_vertex()
+            if some_vertex[0] > 1e-05 or some_vertex[0] < -1e-05 or some_vertex[1] > 1e-05 or some_vertex[1] < -1e-05 or some_vertex[2] > 1e-05 or some_vertex[2] < -1e-05:
+                flags |= 1
+
+            logger.debug(f"{flags=} {time=}")
+            logger.debug(f"{some_vertex=}")
+
+        num_rotation_keys = struct.unpack("<H", self._file.read(2))[0]
+        logger.debug(f"{num_rotation_keys=}")
+
+        for _ in range(num_rotation_keys):
+            time_and_flags = struct.unpack("<I", self._file.read(4))[0]
+            flags = time_and_flags >> 24
+            time = time_and_flags & 0xFFFFFF
+
+            angle = struct.unpack("<f", self._file.read(4))[0]
+
+            some_vertex = self._read_vertex()
+            if angle != 1.0:
+                flags |= 1
+
+            logger.debug(f"{flags=} {time=} {angle=} {some_vertex=}")
+
+        num_scale_keys = struct.unpack("<H", self._file.read(2))[0]
+        logger.debug(f"{num_scale_keys=}")
+
+        for _ in range(num_scale_keys):
+            time_and_flags = struct.unpack("<I", self._file.read(4))[0]
+            flags = time_and_flags >> 24
+            time = time_and_flags & 0xFFFFFF
+
+            some_vertex = self._read_vertex()
+            if some_vertex[0] > 1.00001 or some_vertex[0] < 0.99999 or some_vertex[1] > 1.00001 or some_vertex[1] < 0.99999 or some_vertex[2] > 1.00001 or some_vertex[2] < 0.99999:
+                flags |= 1
+
+            logger.debug(f"{flags=} {time=} {some_vertex=}")
+
+        num_morph_keys = struct.unpack("<H", self._file.read(2))[0]
+        logger.debug(f"{num_morph_keys=}")
+
+        for _ in range(num_morph_keys):
+            time_and_flags = struct.unpack("<I", self._file.read(4))[0]
+            flags = time_and_flags >> 24
+            time = time_and_flags & 0xFFFFFF
+
+            some_bool = struct.unpack("<b", self._file.read(1))[0]
+            logger.debug(f"{flags=} {time=} {some_bool=}")
+
+        num_children = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{num_children=}")
+
+        for _ in range(num_children):
+            self._read_animation_tree()
+
     def __init__(self, file: io.BufferedIOBase):
         self._file = file
-        num_groups = struct.unpack("<I", self._file.read(4))[0]
-        logger.debug(f"{num_groups=}")
+        num_worlds = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{num_worlds=}")
 
         parts_offsets: list[int] = []
         models_offsets: list[int] = []
-        for _ in range(num_groups):
-            name = self._read_str()
-            logger.debug(f"{name=}")
+        for _ in range(num_worlds):
+            world_name = self._read_str()
+            logger.debug(f"{world_name=}")
 
-            for is_model in (False, True):
-                num_objects = struct.unpack("<I", self._file.read(4))[0]
-                logger.debug(f"{num_objects=}")
+            num_parts = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{num_parts=}")
 
-                for _ in range(num_objects):
-                    name = self._read_str()
-                    logger.debug(f"{name=}")
+            for _ in range(num_parts):
+                world_name = self._read_str()
+                logger.debug(f"{world_name=}")
 
-                    item_size, offset = struct.unpack("<II", self._file.read(8))
-                    logger.debug(f"{item_size=} {offset=}")
+                item_size, offset = struct.unpack("<II", self._file.read(8))
+                logger.debug(f"{item_size=} {offset=}")
 
-                    if is_model:
-                        presenter_name = self._read_str()
-                        logger.debug(f"{presenter_name=}")
-                        location_x, location_y, location_z, direction_x, direction_y, direction_z, up_x, up_y, up_z = struct.unpack("<fffffffffx", self._file.read(37))
-                        logger.debug(f"{location_x=} {location_y=} {location_z=} {direction_x=} {direction_y=} {direction_z=} {up_x=} {up_y=} {up_z=}")
-                        models_offsets.append(offset)
-                    else:
-                        parts_offsets.append(offset)
+                parts_offsets.append(offset)
+
+            num_models = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{num_models=}")
+
+            for _ in range(num_models):
+                model_name = self._read_str()
+                logger.debug(f"{model_name=}")
+
+                size, offset = struct.unpack("<II", self._file.read(8))
+                logger.debug(f"{size=} {offset=}")
+
+                presenter_name = self._read_str()
+                logger.debug(f"{presenter_name=}")
+
+                location_x, location_y, location_z, direction_x, direction_y, direction_z, up_x, up_y, up_z = struct.unpack("<fffffffffx", self._file.read(37))
+                logger.debug(f"{location_x=} {location_y=} {location_z=} {direction_x=} {direction_y=} {direction_z=} {up_x=} {up_y=} {up_z=}")
+
+                models_offsets.append(offset)
 
         gif_chunk_size, num_frames = struct.unpack("<II", self._file.read(8))
         logger.debug(f"{gif_chunk_size=} {num_frames=}")
@@ -103,8 +188,78 @@ class WDB:
                 if texture.title.startswith("^"):
                     self._textures.append(self._read_gif(title=texture.title[1:]))
 
-        # model_chunk_size, chunk_size, num_bins = struct.unpack("<III", self._file.read(12))
-        # logger.debug(f"{model_chunk_size=} {chunk_size=} {num_bins=}")
+        for offset in models_offsets:
+            self._file.seek(offset, io.SEEK_SET)
+
+            version = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{version=}")
+
+            if version != 19:
+                raise ValueError(f"Invalid version: {version}")
+
+            texture_info_offset = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{texture_info_offset=}")
+
+            num_rois = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{num_rois=}")
+
+            num_animations = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{num_animations=}")
+
+            for _ in range(num_animations):
+                animation_name = self._read_str()
+                logger.debug(f"{animation_name=}")
+
+                unknown = struct.unpack("<I", self._file.read(4))[0]
+                logger.debug(f"{unknown=}")
+
+                raise NotImplementedError("Animations were apparently never used")
+
+            duration = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{duration=}")
+
+            self._read_animation_tree()
+
+            model_name = self._read_str()
+            logger.debug(f"{model_name=}")
+
+            center = self._read_vertex()
+            logger.debug(f"{center=}")
+
+            radius = struct.unpack("<f", self._file.read(4))[0]
+            logger.debug(f"{radius=}")
+
+            min = self._read_vertex()
+            logger.debug(f"{min=}")
+
+            max = self._read_vertex()
+            logger.debug(f"{max=}")
+
+            texture_name = self._read_str()
+            logger.debug(f"{texture_name=}")
+
+            unknown_byte = struct.unpack("<b", self._file.read(1))[0]
+            logger.debug(f"{unknown_byte=}")
+
+            if unknown_byte != 0:
+                roi_name = model_name.rstrip("0123456789")
+                logger.debug(f"{roi_name=}")
+            else:
+                num_lods = struct.unpack("<I", self._file.read(4))[0]
+
+            self._file.seek(offset + texture_info_offset, io.SEEK_SET)
+            num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
+            logger.debug(f"{num_textures=} {skip_textures=}")
+
+            for _ in range(num_textures):
+                texture = self._read_gif()
+                self._models.append(texture)
+
+                if texture.title.startswith("^"):
+                    self._models.append(self._read_gif(title=texture.title[1:]))
+
+            # world_name = self._read_str()
+            # logger.debug(f"{world_name=}")
 
         # für_später = self._file.tell() - 8
 
