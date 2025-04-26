@@ -238,10 +238,10 @@ class WDB:
             texture_name = self._read_str()
             logger.debug(f"{texture_name=}")
 
-            unknown_byte = struct.unpack("<b", self._file.read(1))[0]
-            logger.debug(f"{unknown_byte=}")
+            defined_elsewhere = struct.unpack("<b", self._file.read(1))[0]
+            logger.debug(f"{defined_elsewhere=}")
 
-            if unknown_byte != 0:
+            if defined_elsewhere != 0:
                 roi_name = model_name.rstrip("0123456789")
                 logger.debug(f"{roi_name=}")
             else:
