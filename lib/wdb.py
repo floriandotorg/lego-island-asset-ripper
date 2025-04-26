@@ -3,6 +3,7 @@ import logging
 import struct
 from dataclasses import dataclass
 from enum import IntEnum
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,18 @@ class WDB:
         Gouraud = 3
         Phong = 4
 
+    @dataclass
+    class Model:
+        title: str
+        vertices: list[tuple[float, float, float]]
+        normals: list[tuple[float, float, float]]
+        uvs: list[tuple[float, float]]
+        indices: list[int]
+
     _images: list[Gif] = []
     _textures: list[Gif] = []
-    _models: list[Gif] = []
+    _model_textures: list[Gif] = []
+    _models: list[Model] = []
 
     @property
     def images(self) -> list[Gif]:
@@ -35,7 +45,11 @@ class WDB:
         return self._textures
 
     @property
-    def models(self) -> list[Gif]:
+    def model_textures(self) -> list[Gif]:
+        return self._model_textures
+
+    @property
+    def models(self) -> list[Model]:
         return self._models
 
     def _read_gif(self, title: str | None = None) -> Gif:
@@ -139,9 +153,9 @@ class WDB:
         for _ in range(num_children):
             self._read_animation_tree()
 
-    def _read_lod(self):
+    def _read_lod(self) -> list[tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[float, float]], list[int]]]:
         unknown8 = struct.unpack("<I", self._file.read(4))[0]
-        if unknown8 & 0xffffff04:
+        if unknown8 & 0xFFFFFF04:
             raise Exception(f"{unknown8=:08x}")
 
         num_meshes = struct.unpack("<I", self._file.read(4))[0]
@@ -157,13 +171,12 @@ class WDB:
         vertices = self._read_vertices(num_verts)
         normals = self._read_vertices(num_normals)
 
-        uv_coordinates = []
-        for _ in range(num_text_verts):
-            uv_coordinates.append(struct.unpack("<ff", self._file.read(8)))
+        uv_coordinates: list[tuple[float, float]] = [cast(tuple[float, float], struct.unpack("<ff", self._file.read(8))) for _ in range(num_text_verts)]
 
+        result = []
         for _ in range(num_meshes):
             num_polys, num_mesh_verts = struct.unpack("<HH", self._file.read(4))
-            vertex_indices = [struct.unpack("<III", self._file.read(12)) for _ in range(num_polys)]
+            vertex_indices: list[int] = [struct.unpack("<I", self._file.read(4))[0] for _ in range(num_polys * 3)]
             num_texture_indices = struct.unpack("<I", self._file.read(4))[0]
             if num_texture_indices > 0:
                 assert num_texture_indices == num_polys * 3
@@ -174,6 +187,10 @@ class WDB:
             material_name = self._read_str()
             shading = WDB.Shading(shading)
             logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
+
+            result.append((vertices, normals, uv_coordinates, vertex_indices))
+
+        return result
 
     def __init__(self, file: io.BufferedIOBase):
         self._file = file
@@ -300,7 +317,9 @@ class WDB:
                 if num_lods != 0:
                     end_component_offset = struct.unpack("<I", self._file.read(4))[0]
                     for _ in range(num_lods):
-                        self._read_lod()
+                        meshes = self._read_lod()
+                        for vertices, normals, uv_coordinates, vertex_indices in meshes:
+                            self._models.append(WDB.Model(model_name, vertices, normals, uv_coordinates, vertex_indices))
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
@@ -308,10 +327,10 @@ class WDB:
 
             for _ in range(num_textures):
                 texture = self._read_gif()
-                self._models.append(texture)
+                self._model_textures.append(texture)
 
                 if texture.title.startswith("^"):
-                    self._models.append(self._read_gif(title=texture.title[1:]))
+                    self._model_textures.append(self._read_gif(title=texture.title[1:]))
 
             # world_name = self._read_str()
             # logger.debug(f"{world_name=}")
