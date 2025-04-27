@@ -1,5 +1,6 @@
 from enum import IntEnum
 import io
+import json
 import logging
 import os
 import struct
@@ -7,13 +8,14 @@ import sys
 from dataclasses import dataclass
 from multiprocessing import Pool
 from tkinter import filedialog
-from typing import BinaryIO, Union
+from typing import BinaryIO, Optional, Union
 import zlib
 
 from lib.flc import FLC
 from lib.iso import ISO9660
 from lib.si import SI
 from lib.smk import SMK
+from lib.wdb import WDB
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +65,127 @@ def write_png(width: int, height: int, data: bytes, color: ColorSpace, stream: B
 
     # IEND chunk
     write_chunk(b'IEND', b'')
+
+
+def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], filename: str) -> None:
+    def extend_gltf_chunk(type: bytes, content: bytes) -> bytes:
+        result = bytearray()
+        result.extend(struct.pack("<I4s", len(content), type))
+        result.extend(content)
+        return bytes(result)
+
+    USHORT = 5123
+    FLOAT = 5126
+    ARRAY_BUFFER = 34962
+    ELEMENT_ARRAY_BUFFER = ARRAY_BUFFER + 1
+
+    if texture is not None:
+        with io.BytesIO() as texture_file:
+            write_png(texture.width, texture.height, texture.image, ColorSpace.RGB, texture_file)
+            texture = texture_file.getvalue()
+
+    bin_chunk_data = bytearray()
+    buffer_views = []
+    accessors = []
+    def append_bin_chunk(data: bytes, target: int) -> int:
+        buffer_view_offset = len(bin_chunk_data)
+        bin_chunk_data.extend(data)
+        length = len(bin_chunk_data) - buffer_view_offset
+        buffer_view_index = len(buffer_views)
+        buffer_views.append({ "buffer": 0, "byteOffset": buffer_view_offset, "byteLength": length, "target": target })
+        return buffer_view_index
+
+    def extend_bin_chunk(fmt: str, data: list, target: int, type: tuple[int, str]) -> int:
+        chunk_data = bytearray()
+        for entry in data:
+            if not isinstance(entry, tuple):
+                entry = (entry,)
+            chunk_data.extend(struct.pack(fmt, *entry))
+        buffer_view_index = append_bin_chunk(chunk_data, target)
+        accessors.append({ "bufferView": buffer_view_index, "componentType": type[0], "count": len(data), "type": type[1] })
+        return buffer_view_index
+
+    extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, (FLOAT, "VEC3"))
+    extend_bin_chunk("<fff", mesh.normals, ARRAY_BUFFER, (FLOAT, "VEC3"))
+    extend_bin_chunk("<H", mesh.indices, ELEMENT_ARRAY_BUFFER, (USHORT, "SCALAR"))
+    assert bool(mesh.uvs) == bool(texture)
+    if mesh.uvs:
+        uv_index = extend_bin_chunk("<ff", [(1 - uv[0], uv[1]) for uv in mesh.uvs], ARRAY_BUFFER, (FLOAT, "VEC2"))
+        texture_index = append_bin_chunk(texture, ARRAY_BUFFER)
+    else:
+        uv_index = None
+        texture_index = None
+    while len(bin_chunk_data) % 4:
+        bin_chunk_data.append(0)
+
+    json_data = {
+  "asset": { "version": "2.0" },
+  "buffers": [
+    {
+      "byteLength": len(bin_chunk_data)
+    }
+  ],
+  "bufferViews": buffer_views,
+  "accessors": accessors,
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+          },
+          "indices": 2,
+          "material": 0
+        }
+      ],
+      "name": mesh_name
+    }
+  ],
+  "materials": [
+    {
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [mesh.color.red / 255, mesh.color.green / 255, mesh.color.blue / 255, 1 - mesh.color.alpha]
+      }
+    }
+  ],
+  "nodes": [{ "mesh": 0 }],
+  "scenes": [{ "nodes": [0] }],
+  "scene": 0
+}
+
+    if texture_index is not None and uv_index is not None:
+        json_data["meshes"][0]["primitives"][0]["attributes"]["TEXCOORD_0"] = uv_index
+        json_data["materials"][0]["pbrMetallicRoughness"] = {
+            "baseColorTexture": {
+                "index": 0
+            }
+        }
+        json_data.update({
+            "textures": [
+                {
+                    "source": 0
+                }
+            ],
+            "images": [
+                {
+                    "mimeType": "image/png",
+                    "bufferView": texture_index
+                }
+            ],
+        })
+
+    json_chunk_data = bytearray(json.dumps(json_data).encode("utf8"))
+    while len(json_chunk_data) % 4:
+        json_chunk_data.extend(b' ')
+
+    contents = bytearray()
+    contents.extend(extend_gltf_chunk(b"JSON", json_chunk_data))
+    contents.extend(extend_gltf_chunk(b"BIN\0", bin_chunk_data))
+
+    with open(filename, "wb") as file:
+        file.write(struct.pack("<4sII", b"glTF", 2, 4 * 3 + len(contents)))
+        file.write(contents)
 
 
 def write_bitmap(filename: str, obj: SI.Object) -> None:
