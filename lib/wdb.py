@@ -33,6 +33,10 @@ class WDB:
     @dataclass
     class Model:
         name: str
+        meshes: list['WDB.Mesh']
+
+    @dataclass
+    class Mesh:
         vertices: list[tuple[float, float, float]]
         normals: list[tuple[float, float, float]]
         uvs: list[tuple[float, float]]
@@ -161,7 +165,7 @@ class WDB:
         for _ in range(num_children):
             self._read_animation_tree()
 
-    def _read_lod(self) -> list[tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[float, float]], list[int]], 'WDB.Color']:
+    def _read_lod(self) -> list['WDB.Mesh']:
         unknown8 = struct.unpack("<I", self._file.read(4))[0]
         if unknown8 & 0xFFFFFF04:
             raise Exception(f"{unknown8=:08x}")
@@ -212,7 +216,7 @@ class WDB:
             shading = WDB.Shading(shading)
             logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
 
-            result.append((mesh_vertices, mesh_normals, uv_coordinates, vertex_indices, WDB.Color(red, green, blue, alpha)))
+            result.append(WDB.Mesh(mesh_vertices, mesh_normals, uv_coordinates, vertex_indices, WDB.Color(red, green, blue, alpha)))
 
         return result
 
@@ -354,8 +358,7 @@ class WDB:
                     end_component_offset = struct.unpack("<I", self._file.read(4))[0]
                     for lod_index in range(num_lods):
                         meshes = self._read_lod()
-                        for mesh_index, (vertices, normals, uv_coordinates, vertex_indices, color) in enumerate(meshes):
-                            self._models.append(WDB.Model(f"{model_name}_{suffix_index}_L{lod_index}_M{mesh_index}", vertices, normals, uv_coordinates, vertex_indices, color))
+                        self._models.append(WDB.Model(f"{model_name}_{suffix_index}_L{lod_index}", meshes))
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
