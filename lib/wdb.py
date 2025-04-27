@@ -47,6 +47,8 @@ class WDB:
         uvs: list[tuple[float, float]]
         indices: list[int]
         color: 'WDB.Color'
+        texture_name: str
+        material_name: str
 
     _images: list[Gif] = []
     _textures: list[Gif] = []
@@ -68,6 +70,12 @@ class WDB:
     @property
     def models(self) -> list[Model]:
         return self._models
+
+    def texture_by_name(self, texture_name: str) -> Gif:
+        for texture in self._model_textures:
+            if texture.title == texture_name:
+                return texture
+        raise KeyError()
 
     def _read_gif(self, title: str | None = None) -> Gif:
         if title is None:
@@ -226,7 +234,7 @@ class WDB:
             shading = WDB.Shading(shading)
             logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
 
-            result.append(WDB.Mesh(mesh_vertices, mesh_normals, mesh_uv, vertex_indices, WDB.Color(red, green, blue, alpha)))
+            result.append(WDB.Mesh(mesh_vertices, mesh_normals, mesh_uv, vertex_indices, WDB.Color(red, green, blue, alpha), texture_name, material_name))
 
         return WDB.Lod(result)
 
@@ -353,6 +361,7 @@ class WDB:
 
             texture_name = self._read_str()
             logger.debug(f"{texture_name=}")
+            assert texture_name == ''
 
             defined_elsewhere = struct.unpack("<b", self._file.read(1))[0]
             logger.debug(f"{defined_elsewhere=}")
