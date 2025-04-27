@@ -24,12 +24,20 @@ class WDB:
         Phong = 4
 
     @dataclass
+    class Color:
+        red: int
+        green: int
+        blue: int
+        alpha: float
+
+    @dataclass
     class Model:
         name: str
         vertices: list[tuple[float, float, float]]
         normals: list[tuple[float, float, float]]
         uvs: list[tuple[float, float]]
         indices: list[int]
+        color: 'WDB.Color'
 
     _images: list[Gif] = []
     _textures: list[Gif] = []
@@ -153,7 +161,7 @@ class WDB:
         for _ in range(num_children):
             self._read_animation_tree()
 
-    def _read_lod(self) -> list[tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[float, float]], list[int]]]:
+    def _read_lod(self) -> list[tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[float, float]], list[int]], 'WDB.Color']:
         unknown8 = struct.unpack("<I", self._file.read(4))[0]
         if unknown8 & 0xFFFFFF04:
             raise Exception(f"{unknown8=:08x}")
@@ -182,13 +190,13 @@ class WDB:
                 assert num_texture_indices == num_polys * 3
                 texture_indices = [struct.unpack("<III", self._file.read(12)) for _ in range(num_polys)]
 
-            red, green, blue, alpha, shading = struct.unpack("<bbbfb3x", self._file.read(3 + 4 + 4))
+            red, green, blue, alpha, shading = struct.unpack("<BBBfb3x", self._file.read(3 + 4 + 4))
             texture_name = self._read_str()
             material_name = self._read_str()
             shading = WDB.Shading(shading)
             logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
 
-            result.append((vertices, normals, uv_coordinates, vertex_indices))
+            result.append((vertices, normals, uv_coordinates, vertex_indices, WDB.Color(red, green, blue, alpha)))
 
         return result
 
@@ -319,7 +327,7 @@ class WDB:
                     for _ in range(num_lods):
                         meshes = self._read_lod()
                         for vertices, normals, uv_coordinates, vertex_indices in meshes:
-                            self._models.append(WDB.Model(model_name, vertices, normals, uv_coordinates, vertex_indices))
+                            self._models.append(WDB.Model(model_name, vertices, normals, uv_coordinates, vertex_indices, color))
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
