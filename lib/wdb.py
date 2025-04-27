@@ -284,7 +284,7 @@ class WDB:
                     self._textures.append(self._read_gif(title=texture.title[1:]))
 
         scanned_offsets = set()
-        scanned_model_names = dict()
+        scanned_model_names = set()
         for offset in models_offsets:
             if offset in scanned_offsets:
                 logger.info(f"Already scanned offset {offset}, skipping")
@@ -325,10 +325,9 @@ class WDB:
             model_name = self._read_str()
             logger.debug(f"{model_name=}")
 
-            suffix_index = scanned_model_names.get(model_name, 0)
-            if suffix_index > 0:
-                logger.info(f"Already scanned model {model_name} for {suffix_index} time(s)")
-            scanned_model_names[model_name] = suffix_index + 1
+            if model_name in scanned_model_names:
+                logger.warning(f"Already scanned model {model_name}!")
+            scanned_model_names.add(model_name)
 
             center = self._read_vertex()
             logger.debug(f"{center=}")
@@ -358,7 +357,7 @@ class WDB:
                     end_component_offset = struct.unpack("<I", self._file.read(4))[0]
                     for lod_index in range(num_lods):
                         meshes = self._read_lod()
-                        self._models.append(WDB.Model(f"{model_name}_{suffix_index}_L{lod_index}", meshes))
+                        self._models.append(WDB.Model(f"{model_name}_L{lod_index}", meshes))
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
