@@ -1,3 +1,4 @@
+from enum import IntEnum
 import io
 import logging
 import os
@@ -6,7 +7,8 @@ import sys
 from dataclasses import dataclass
 from multiprocessing import Pool
 from tkinter import filedialog
-from typing import Union
+from typing import BinaryIO, Union
+import zlib
 
 from lib.flc import FLC
 from lib.iso import ISO9660
@@ -17,13 +19,50 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def extend_chunk(type: bytes, content: bytes) -> bytes:
-    result = bytearray()
-    result.extend(struct.pack("<4sI", type, len(content)))
-    result.extend(content)
-    if (len(content) % 2) == 1:
-        result.append(0)
-    return bytes(result)
+class ColorSpace(IntEnum):
+    RGB = 2
+    RGBA = 6
+
+
+def write_png(width: int, height: int, data: bytes, color: ColorSpace, stream: BinaryIO):
+    def write_chunk(tag, data):
+        stream.write(struct.pack('>I', len(data)))
+        stream.write(tag)
+        stream.write(data)
+        stream.write(struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff))
+
+    # PNG file signature
+    stream.write(b'\x89PNG\r\n\x1a\n')
+
+    # IHDR chunk
+    ihdr = struct.pack('>IIBBBBB',
+        width, height, 8, int(color), 0, 0, 0
+    )
+    write_chunk(b'IHDR', ihdr)
+
+    # Prepare raw image data (add filter byte 0 at start of each row)
+    match color:
+        case ColorSpace.RGB:
+            byte_per_pixel = 3
+        case ColorSpace.RGBA:
+            byte_per_pixel = 4
+        case _:
+            raise ValueError(f"Invalid value for parameter color: {color}")
+
+    if len(data) != width * height * byte_per_pixel:
+        raise ValueError(f"Expected {width * height * byte_per_pixel} bytes but got {len(data)}")
+
+    raw = b''
+    stride = width * byte_per_pixel
+    for y in range(height):
+        raw += b'\x00' + data[y * stride:(y+1) * stride]
+
+    # IDAT chunk (compressed image data)
+    compressed = zlib.compress(raw)
+    write_chunk(b'IDAT', compressed)
+
+    # IEND chunk
+    write_chunk(b'IEND', b'')
 
 
 def write_bitmap(filename: str, obj: SI.Object) -> None:
@@ -192,12 +231,20 @@ def write_smk_avi(video: Union[SMK, FLC], filename: str) -> None:
 def write_si(filename: str, obj: SI.Object) -> bool:
     match obj.file_type:
         case SI.FileType.WAV:
+            def extend_wav_chunk(type: bytes, content: bytes) -> bytes:
+                result = bytearray()
+                result.extend(struct.pack("<4sI", type, len(content)))
+                result.extend(content)
+                if (len(content) % 2) == 1:
+                    result.append(0)
+                return bytes(result)
+
             with open(f"extract/{filename}_{obj.id}.wav", "wb") as file:
                 content = bytearray()
                 content.extend(b"WAVE")
-                content.extend(extend_chunk(b"fmt ", obj.data[: obj.chunk_sizes[0]]))
-                content.extend(extend_chunk(b"data", obj.data[obj.chunk_sizes[0] :]))
-                file.write(extend_chunk(b"RIFF", content))
+                content.extend(extend_wav_chunk(b"fmt ", obj.data[: obj.chunk_sizes[0]]))
+                content.extend(extend_wav_chunk(b"data", obj.data[obj.chunk_sizes[0] :]))
+                file.write(extend_wav_chunk(b"RIFF", content))
             return True
         case SI.FileType.STL:
             write_bitmap(f"extract/{filename}_{obj.id}.bmp", obj)
