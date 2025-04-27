@@ -188,6 +188,19 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], file
         file.write(contents)
 
 
+def export_wdb_model(wdb: WDB, model: WDB.Model):
+    for lod_index, lod in enumerate(model.lods):
+        for mesh_index, mesh in enumerate(lod.meshes):
+            if mesh.texture_name != "":
+                texture = wdb.texture_by_name(mesh.texture_name)
+            else:
+                texture = None
+            assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
+            mesh_name = f"{model.name}_L{lod_index}_M{mesh_index}"
+            filename = f"{mesh_name}.glb"
+            write_gltf2(mesh, mesh_name, texture, f"extract/modelS/{filename}")
+
+
 def write_bitmap(filename: str, obj: SI.Object) -> None:
     with open(filename, "wb") as file:
         file.write(struct.pack("<2sIII", b"BM", len(obj.data), 0, obj.chunk_sizes[0] + 14))
