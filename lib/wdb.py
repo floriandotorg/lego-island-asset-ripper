@@ -279,7 +279,14 @@ class WDB:
                 if texture.title.startswith("^"):
                     self._textures.append(self._read_gif(title=texture.title[1:]))
 
+        scanned_offsets = set()
+        scanned_model_names = dict()
         for offset in models_offsets:
+            if offset in scanned_offsets:
+                logger.info(f"Already scanned offset {offset}, skipping")
+                continue
+            scanned_offsets.add(offset)
+
             self._file.seek(offset, io.SEEK_SET)
 
             version = struct.unpack("<I", self._file.read(4))[0]
@@ -314,6 +321,11 @@ class WDB:
             model_name = self._read_str()
             logger.debug(f"{model_name=}")
 
+            suffix_index = scanned_model_names.get(model_name, 0)
+            if suffix_index > 0:
+                logger.info(f"Already scanned model {model_name} for {suffix_index} time(s)")
+            scanned_model_names[model_name] = suffix_index + 1
+
             center = self._read_vertex()
             logger.debug(f"{center=}")
 
@@ -340,10 +352,10 @@ class WDB:
                 logger.debug(f"{num_lods=}")
                 if num_lods != 0:
                     end_component_offset = struct.unpack("<I", self._file.read(4))[0]
-                    for _ in range(num_lods):
+                    for lod_index in range(num_lods):
                         meshes = self._read_lod()
-                        for vertices, normals, uv_coordinates, vertex_indices in meshes:
-                            self._models.append(WDB.Model(model_name, vertices, normals, uv_coordinates, vertex_indices, color))
+                        for mesh_index, (vertices, normals, uv_coordinates, vertex_indices, color) in enumerate(meshes):
+                            self._models.append(WDB.Model(f"{model_name}_{suffix_index}_L{lod_index}_M{mesh_index}", vertices, normals, uv_coordinates, vertex_indices, color))
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
