@@ -1,15 +1,15 @@
-from enum import IntEnum
 import io
 import json
 import logging
 import os
 import struct
 import sys
+import zlib
 from dataclasses import dataclass
+from enum import IntEnum
 from multiprocessing import Pool
 from tkinter import filedialog
 from typing import BinaryIO, Optional, Union
-import zlib
 
 from lib.flc import FLC
 from lib.iso import ISO9660
@@ -28,19 +28,17 @@ class ColorSpace(IntEnum):
 
 def write_png(width: int, height: int, data: bytes, color: ColorSpace, stream: BinaryIO):
     def write_chunk(tag, data):
-        stream.write(struct.pack('>I', len(data)))
+        stream.write(struct.pack(">I", len(data)))
         stream.write(tag)
         stream.write(data)
-        stream.write(struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff))
+        stream.write(struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
     # PNG file signature
-    stream.write(b'\x89PNG\r\n\x1a\n')
+    stream.write(b"\x89PNG\r\n\x1a\n")
 
     # IHDR chunk
-    ihdr = struct.pack('>IIBBBBB',
-        width, height, 8, int(color), 0, 0, 0
-    )
-    write_chunk(b'IHDR', ihdr)
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, int(color), 0, 0, 0)
+    write_chunk(b"IHDR", ihdr)
 
     # Prepare raw image data (add filter byte 0 at start of each row)
     match color:
@@ -54,17 +52,17 @@ def write_png(width: int, height: int, data: bytes, color: ColorSpace, stream: B
     if len(data) != width * height * byte_per_pixel:
         raise ValueError(f"Expected {width * height * byte_per_pixel} bytes but got {len(data)}")
 
-    raw = b''
+    raw = b""
     stride = width * byte_per_pixel
     for y in range(height):
-        raw += b'\x00' + data[y * stride:(y+1) * stride]
+        raw += b"\x00" + data[y * stride : (y + 1) * stride]
 
     # IDAT chunk (compressed image data)
     compressed = zlib.compress(raw)
-    write_chunk(b'IDAT', compressed)
+    write_chunk(b"IDAT", compressed)
 
     # IEND chunk
-    write_chunk(b'IEND', b'')
+    write_chunk(b"IEND", b"")
 
 
 def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], filename: str) -> None:
@@ -87,12 +85,13 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], file
     bin_chunk_data = bytearray()
     buffer_views = []
     accessors = []
+
     def append_bin_chunk(data: bytes, target: int) -> int:
         buffer_view_offset = len(bin_chunk_data)
         bin_chunk_data.extend(data)
         length = len(bin_chunk_data) - buffer_view_offset
         buffer_view_index = len(buffer_views)
-        buffer_views.append({ "buffer": 0, "byteOffset": buffer_view_offset, "byteLength": length, "target": target })
+        buffer_views.append({"buffer": 0, "byteOffset": buffer_view_offset, "byteLength": length, "target": target})
         return buffer_view_index
 
     def extend_bin_chunk(fmt: str, data: list, target: int, type: tuple[int, str]) -> int:
@@ -102,7 +101,7 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], file
                 entry = (entry,)
             chunk_data.extend(struct.pack(fmt, *entry))
         buffer_view_index = append_bin_chunk(chunk_data, target)
-        accessors.append({ "bufferView": buffer_view_index, "componentType": type[0], "count": len(data), "type": type[1] })
+        accessors.append({"bufferView": buffer_view_index, "componentType": type[0], "count": len(data), "type": type[1]})
         return buffer_view_index
 
     extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, (FLOAT, "VEC3"))
@@ -119,65 +118,44 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], file
         bin_chunk_data.append(0)
 
     json_data = {
-  "asset": { "version": "2.0" },
-  "buffers": [
-    {
-      "byteLength": len(bin_chunk_data)
+        "asset": {"version": "2.0"},
+        "buffers": [{"byteLength": len(bin_chunk_data)}],
+        "bufferViews": buffer_views,
+        "accessors": accessors,
+        "meshes": [
+            {
+                "primitives": [
+                    {
+                        "attributes": {
+                            "POSITION": 0,
+                            "NORMAL": 1,
+                        },
+                        "indices": 2,
+                        "material": 0,
+                    }
+                ],
+                "name": mesh_name,
+            }
+        ],
+        "materials": [{"pbrMetallicRoughness": {"baseColorFactor": [mesh.color.red / 255, mesh.color.green / 255, mesh.color.blue / 255, 1 - mesh.color.alpha]}}],
+        "nodes": [{"mesh": 0}],
+        "scenes": [{"nodes": [0]}],
+        "scene": 0,
     }
-  ],
-  "bufferViews": buffer_views,
-  "accessors": accessors,
-  "meshes": [
-    {
-      "primitives": [
-        {
-          "attributes": {
-            "POSITION": 0,
-            "NORMAL": 1,
-          },
-          "indices": 2,
-          "material": 0
-        }
-      ],
-      "name": mesh_name
-    }
-  ],
-  "materials": [
-    {
-      "pbrMetallicRoughness": {
-        "baseColorFactor": [mesh.color.red / 255, mesh.color.green / 255, mesh.color.blue / 255, 1 - mesh.color.alpha]
-      }
-    }
-  ],
-  "nodes": [{ "mesh": 0 }],
-  "scenes": [{ "nodes": [0] }],
-  "scene": 0
-}
 
     if texture_index is not None and uv_index is not None:
         json_data["meshes"][0]["primitives"][0]["attributes"]["TEXCOORD_0"] = uv_index
-        json_data["materials"][0]["pbrMetallicRoughness"] = {
-            "baseColorTexture": {
-                "index": 0
+        json_data["materials"][0]["pbrMetallicRoughness"] = {"baseColorTexture": {"index": 0}}
+        json_data.update(
+            {
+                "textures": [{"source": 0}],
+                "images": [{"mimeType": "image/png", "bufferView": texture_index}],
             }
-        }
-        json_data.update({
-            "textures": [
-                {
-                    "source": 0
-                }
-            ],
-            "images": [
-                {
-                    "mimeType": "image/png",
-                    "bufferView": texture_index
-                }
-            ],
-        })
+        )
 
     json_chunk_data = bytearray(json.dumps(json_data).encode("utf8"))
     while len(json_chunk_data) % 4:
-        json_chunk_data.extend(b' ')
+        json_chunk_data.extend(b" ")
 
     contents = bytearray()
     contents.extend(extend_gltf_chunk(b"JSON", json_chunk_data))
@@ -188,7 +166,8 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], file
         file.write(contents)
 
 
-def export_wdb_model(wdb: WDB, model: WDB.Model):
+def export_wdb_model(wdb: WDB, model: WDB.Model) -> int:
+    result = 0
     for lod_index, lod in enumerate(model.lods):
         for mesh_index, mesh in enumerate(lod.meshes):
             if mesh.texture_name != "":
@@ -198,7 +177,9 @@ def export_wdb_model(wdb: WDB, model: WDB.Model):
             assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
             mesh_name = f"{model.name}_L{lod_index}_M{mesh_index}"
             filename = f"{mesh_name}.glb"
-            write_gltf2(mesh, mesh_name, texture, f"extract/modelS/{filename}")
+            write_gltf2(mesh, mesh_name, texture, f"extract/{filename}")
+            result += 1
+    return result
 
 
 def write_bitmap(filename: str, obj: SI.Object) -> None:
@@ -367,6 +348,7 @@ def write_smk_avi(video: Union[SMK, FLC], filename: str) -> None:
 def write_si(filename: str, obj: SI.Object) -> bool:
     match obj.file_type:
         case SI.FileType.WAV:
+
             def extend_wav_chunk(type: bytes, content: bytes) -> bytes:
                 result = bytearray()
                 result.extend(struct.pack("<4sI", type, len(content)))
@@ -470,17 +452,24 @@ def balanced_chunks(data: list[File], n: int) -> list[list[File]]:
 
 
 if __name__ == "__main__":
-    files: list[File] = []
+    si_files: list[File] = []
+    wdb_files: list[io.BytesIO] = []
+
     with ISO9660(get_iso_path()) as iso:
         for file in iso.filelist:
-            if not file.endswith(".SI"):
+            if not file.endswith(".SI") and not file.endswith(".WDB"):
                 continue
 
             try:
                 mem_file = io.BytesIO()
                 mem_file.write(iso.open(file).read())
                 mem_file.seek(0, io.SEEK_SET)
-                files.append(File(SI(mem_file), file))
+                if file.endswith(".SI"):
+                    si_files.append(File(SI(mem_file), file))
+                elif file.endswith(".WDB"):
+                    wdb_files.append(mem_file)
+                else:
+                    raise ValueError(f"Unknown file type: {file}")
             except ValueError:
                 logger.error(f"Error opening {file}")
 
@@ -488,7 +477,17 @@ if __name__ == "__main__":
     if cpus is None:
         cpus = 1
 
+    exported_files = 0
     with Pool(processes=cpus) as pool:
-        exported_files = sum(pool.map(process_files, balanced_chunks(files, cpus)))
+        results = pool.map_async(process_files, balanced_chunks(si_files, cpus))
+
+        logger.info("Exporting WDB models ..")
+        for wdb_file in wdb_files:
+            wdb = WDB(wdb_file)
+            for model in wdb.models:
+                exported_files += export_wdb_model(wdb, model)
+        logger.info("Exporting WDB models .. [done]")
+
+        exported_files += sum(results.get())
 
     logger.info(f"Exported {exported_files} files")
