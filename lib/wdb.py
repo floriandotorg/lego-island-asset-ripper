@@ -33,6 +33,10 @@ class WDB:
     @dataclass
     class Model:
         name: str
+        lods: list['WDB.Lod']
+
+    @dataclass
+    class Lod:
         meshes: list['WDB.Mesh']
 
     @dataclass
@@ -165,7 +169,7 @@ class WDB:
         for _ in range(num_children):
             self._read_animation_tree()
 
-    def _read_lod(self) -> list['WDB.Mesh']:
+    def _read_lod(self) -> 'WDB.Lod':
         unknown8 = struct.unpack("<I", self._file.read(4))[0]
         if unknown8 & 0xFFFFFF04:
             raise Exception(f"{unknown8=:08x}")
@@ -218,7 +222,7 @@ class WDB:
 
             result.append(WDB.Mesh(mesh_vertices, mesh_normals, uv_coordinates, vertex_indices, WDB.Color(red, green, blue, alpha)))
 
-        return result
+        return WDB.Lod(result)
 
     def __init__(self, file: io.BufferedIOBase):
         self._file = file
@@ -355,9 +359,8 @@ class WDB:
                 logger.debug(f"{num_lods=}")
                 if num_lods != 0:
                     end_component_offset = struct.unpack("<I", self._file.read(4))[0]
-                    for lod_index in range(num_lods):
-                        meshes = self._read_lod()
-                        self._models.append(WDB.Model(f"{model_name}_L{lod_index}", meshes))
+                    lods: list[WDB.Lod] = [self._read_lod() for _ in range(num_lods)]
+                    self._models.append(WDB.Model(model_name, lods))
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
