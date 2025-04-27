@@ -25,7 +25,7 @@ class WDB:
 
     @dataclass
     class Model:
-        title: str
+        name: str
         vertices: list[tuple[float, float, float]]
         normals: list[tuple[float, float, float]]
         uvs: list[tuple[float, float]]
