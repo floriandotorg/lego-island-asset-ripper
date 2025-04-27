@@ -184,7 +184,23 @@ class WDB:
         result = []
         for _ in range(num_meshes):
             num_polys, num_mesh_verts = struct.unpack("<HH", self._file.read(4))
-            vertex_indices: list[int] = [struct.unpack("<I", self._file.read(4))[0] for _ in range(num_polys * 3)]
+            vertex_indices_packed: list[int] = [struct.unpack("<I", self._file.read(4))[0] for _ in range(num_polys * 3)]
+            mesh_vertices = []
+            mesh_normals = []
+            vertex_indices = []
+            for vertex_index_packed in vertex_indices_packed:
+                if vertex_index_packed & 0x80000000:
+                    vertex_indices.append(len(mesh_vertices))
+
+                    global_vertex_index = vertex_index_packed & 0x7fff
+                    mesh_vertices.append(vertices[global_vertex_index])
+                    global_normal_index = (vertex_index_packed >> 16) & 0x7fff
+                    mesh_normals.append(normals[global_normal_index])
+                    # TODO: Handle texture
+                else:
+                    vertex_indices.append(vertex_index_packed & 0x7fff)
+            assert len(vertex_indices) == num_polys * 3
+            assert len(mesh_vertices) == num_mesh_verts, f"{len(mesh_vertices)=} != {num_mesh_verts=}"
             num_texture_indices = struct.unpack("<I", self._file.read(4))[0]
             if num_texture_indices > 0:
                 assert num_texture_indices == num_polys * 3
@@ -196,7 +212,7 @@ class WDB:
             shading = WDB.Shading(shading)
             logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
 
-            result.append((vertices, normals, uv_coordinates, vertex_indices, WDB.Color(red, green, blue, alpha)))
+            result.append((mesh_vertices, mesh_normals, uv_coordinates, vertex_indices, WDB.Color(red, green, blue, alpha)))
 
         return result
 
