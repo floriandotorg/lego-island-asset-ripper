@@ -1,4 +1,5 @@
 import io
+from itertools import zip_longest
 import logging
 import struct
 from dataclasses import dataclass
@@ -193,10 +194,17 @@ class WDB:
         for _ in range(num_meshes):
             num_polys, num_mesh_verts = struct.unpack("<HH", self._file.read(4))
             vertex_indices_packed: list[int] = [struct.unpack("<I", self._file.read(4))[0] for _ in range(num_polys * 3)]
+            num_texture_indices = struct.unpack("<I", self._file.read(4))[0]
+            if num_texture_indices > 0:
+                assert num_texture_indices == num_polys * 3
+                texture_indices = [struct.unpack("<I", self._file.read(4))[0] for _ in range(num_polys * 3)]
+            else:
+                texture_indices = []
             mesh_vertices = []
             mesh_normals = []
+            mesh_uv = []
             vertex_indices = []
-            for vertex_index_packed in vertex_indices_packed:
+            for vertex_index_packed, texture_index in zip_longest(vertex_indices_packed, texture_indices):
                 if vertex_index_packed & 0x80000000:
                     vertex_indices.append(len(mesh_vertices))
 
@@ -204,15 +212,13 @@ class WDB:
                     mesh_vertices.append(vertices[global_vertex_index])
                     global_normal_index = (vertex_index_packed >> 16) & 0x7fff
                     mesh_normals.append(normals[global_normal_index])
-                    # TODO: Handle texture
+                    if texture_index is not None and uv_coordinates:
+                        mesh_uv.append(uv_coordinates[texture_index])
                 else:
                     vertex_indices.append(vertex_index_packed & 0x7fff)
             assert len(vertex_indices) == num_polys * 3
             assert len(mesh_vertices) == num_mesh_verts, f"{len(mesh_vertices)=} != {num_mesh_verts=}"
-            num_texture_indices = struct.unpack("<I", self._file.read(4))[0]
-            if num_texture_indices > 0:
-                assert num_texture_indices == num_polys * 3
-                texture_indices = [struct.unpack("<III", self._file.read(12)) for _ in range(num_polys)]
+            assert len(mesh_uv) in [0, num_mesh_verts], f"{len(mesh_uv)=} != {num_polys=}"
 
             red, green, blue, alpha, shading = struct.unpack("<BBBfb3x", self._file.read(3 + 4 + 4))
             texture_name = self._read_str()
@@ -220,7 +226,7 @@ class WDB:
             shading = WDB.Shading(shading)
             logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
 
-            result.append(WDB.Mesh(mesh_vertices, mesh_normals, uv_coordinates, vertex_indices, WDB.Color(red, green, blue, alpha)))
+            result.append(WDB.Mesh(mesh_vertices, mesh_normals, mesh_uv, vertex_indices, WDB.Color(red, green, blue, alpha)))
 
         return WDB.Lod(result)
 
