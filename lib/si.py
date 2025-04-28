@@ -57,6 +57,7 @@ class SI:
         filename: Optional[str]
         file_type: Optional["SI.FileType"]
         volume: Optional[int]
+        extra_data: str
         data: bytearray = field(default_factory=bytearray)
         chunk_sizes: list[int] = field(default_factory=list)
 
@@ -133,7 +134,12 @@ class SI:
                 self._file.seek(4, io.SEEK_CUR)  # unknown 1
                 name = self._read_null_terminated_string()
                 id, flags, duration, loops, *coords = struct.unpack("<2I4x2I9d", self._file.read(92))
-                self._file.seek(self._read_uint16(), io.SEEK_CUR)
+                extra_data_length = self._read_uint16()
+                if extra_data_length:
+                    extra_data = self._file.read(extra_data_length)
+                    extra_data = extra_data[:-1].decode("ascii")
+                else:
+                    extra_data = ""
                 filename: Optional[str] = None
                 file_type: Optional[SI.FileType] = None
                 volume: Optional[int] = None
@@ -161,6 +167,7 @@ class SI:
                     filename=filename,
                     file_type=file_type,
                     volume=volume,
+                    extra_data=extra_data
                 )
                 self._object_list[id] = obj
                 logger.debug(obj)
