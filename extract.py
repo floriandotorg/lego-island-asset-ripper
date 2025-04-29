@@ -65,22 +65,38 @@ def write_png(width: int, height: int, data: bytes, color: ColorSpace, stream: B
     write_chunk(b"IEND", b"")
 
 
-def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: WDB.Gif | None, filename: str) -> None:
+def write_gltf2_mesh(mesh: WDB.Mesh, mesh_name: str, texture: WDB.Gif | None, filename: str) -> None:
+    _write_gltf2([(mesh, texture)], mesh_name, filename, True)
+
+
+def write_gltf2_lod(wdb: WDB, lod: WDB.Lod, lod_name: str, filename: str) -> None:
+    meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]] = []
+    for mesh in lod.meshes:
+        if mesh.uvs:
+            texture = wdb.texture_by_name(mesh.texture_name)
+        else:
+            texture = None
+        meshes_textures.append((mesh, texture))
+    _write_gltf2(meshes_textures, lod_name, filename, False)
+
+
+def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name: str, filename: str, mesh_export: bool) -> None:
     def extend_gltf_chunk(type: bytes, content: bytes) -> bytes:
         result = bytearray()
         result.extend(struct.pack("<I4s", len(content), type))
         result.extend(content)
         return bytes(result)
 
+    assert not mesh_export or len(meshes_textures) == 1
+
+    meshes: list[WDB.Mesh]
+    textures: list[(WDB.Gif | None)]
+    meshes, textures = zip(*meshes_textures)
+
     USHORT = 5123
     FLOAT = 5126
     ARRAY_BUFFER = 34962
     ELEMENT_ARRAY_BUFFER = ARRAY_BUFFER + 1
-
-    if texture is not None:
-        with io.BytesIO() as texture_file:
-            write_png(texture.width, texture.height, texture.image, ColorSpace.RGB, texture_file)
-            texture = texture_file.getvalue()
 
     bin_chunk_data = bytearray()
     buffer_views = []
@@ -109,60 +125,90 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: WDB.Gif | None, filenam
         accessors.append({"bufferView": buffer_view_index, "componentType": componentType, "count": len(data), "type": type})
         return buffer_view_index
 
-    extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, FLOAT, "VEC3")
-    min_vertex = [min(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
-    max_vertex = [max(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
-    accessors[-1].update({
-        "min": min_vertex,
-        "max": max_vertex,
-    })
-    extend_bin_chunk("<fff", mesh.normals, ARRAY_BUFFER, FLOAT, "VEC3")
-    extend_bin_chunk("<H", mesh.indices, ELEMENT_ARRAY_BUFFER, USHORT, "SCALAR")
-    assert bool(mesh.uvs) == bool(texture)
-    if mesh.uvs:
-        uv_index = extend_bin_chunk("<ff", mesh.uvs, ARRAY_BUFFER, FLOAT, "VEC2")
-        texture_index = append_bin_chunk(texture, None)
-    else:
-        uv_index = None
-        texture_index = None
-    while len(bin_chunk_data) % 4:
-        bin_chunk_data.append(0)
+    json_textures = []
+    json_images = []
+    json_meshes = []
+    json_materials = []
+    for mesh_index, mesh in enumerate(meshes):
+        vertex_index = extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, FLOAT, "VEC3")
+        min_vertex = [min(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
+        max_vertex = [max(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
+        accessors[-1].update({
+            "min": min_vertex,
+            "max": max_vertex,
+        })
+        normal_index = extend_bin_chunk("<fff", mesh.normals, ARRAY_BUFFER, FLOAT, "VEC3")
+        index_index = extend_bin_chunk("<H", mesh.indices, ELEMENT_ARRAY_BUFFER, USHORT, "SCALAR")
+
+        json_mesh_data = {
+            "primitives": [
+                {
+                    "attributes": {
+                        "POSITION": vertex_index,
+                        "NORMAL": normal_index,
+                    },
+                    "indices": index_index,
+                    "material": len(json_materials)
+                }
+            ],
+            "name": name if mesh_export else f"{name}_M{mesh_index}"
+        }
+        json_material = {
+            "pbrMetallicRoughness": {
+                "baseColorFactor": [mesh.color.red / 255, mesh.color.green / 255, mesh.color.blue / 255, 1 - mesh.color.alpha]
+            }
+        }
+        json_meshes.append(json_mesh_data)
+        json_materials.append(json_material)
+        if mesh.uvs:
+            uv_index = extend_bin_chunk("<ff", mesh.uvs, ARRAY_BUFFER, FLOAT, "VEC2")
+            json_meshes[mesh_index]["primitives"][0]["attributes"]["TEXCOORD_0"] = uv_index
+        else:
+            assert not mesh.texture_name
+
+    for mesh_index, texture in enumerate(textures):
+        if texture:
+            with io.BytesIO() as texture_file:
+                write_png(texture.width, texture.height, texture.image, ColorSpace.RGB, texture_file)
+                texture = texture_file.getvalue()
+            texture_index = append_bin_chunk(texture, None)
+            json_materials[mesh_index]["pbrMetallicRoughness"] = {
+                "baseColorTexture": {
+                    "index": len(json_textures)
+                }
+            }
+            json_textures.append({
+                "source": len(json_images)
+            })
+            json_images.append({
+                "mimeType": "image/png",
+                "bufferView": texture_index
+            })
+
+    nodes = []
+    if not mesh_export:
+        nodes.append({
+            "name": name,
+            "children": list(range(1, len(json_meshes) + 1)),
+        })
+    nodes.extend({ "mesh": index } for index in range(len(json_meshes)))
 
     json_data = {
         "asset": {"version": "2.0"},
         "buffers": [{"byteLength": len(bin_chunk_data)}],
         "bufferViews": buffer_views,
         "accessors": accessors,
-        "meshes": [
-            {
-                "primitives": [
-                    {
-                        "attributes": {
-                            "POSITION": 0,
-                            "NORMAL": 1,
-                        },
-                        "indices": 2,
-                        "material": 0,
-                    }
-                ],
-                "name": mesh_name,
-            }
-        ],
-        "materials": [{"pbrMetallicRoughness": {"baseColorFactor": [mesh.color.red / 255, mesh.color.green / 255, mesh.color.blue / 255, 1 - mesh.color.alpha]}}],
-        "nodes": [{"mesh": 0}],
+        "meshes": json_meshes,
+        "materials": json_materials,
+        "nodes": nodes,
         "scenes": [{"nodes": [0]}],
         "scene": 0,
     }
 
-    if texture_index is not None and uv_index is not None:
-        json_data["meshes"][0]["primitives"][0]["attributes"]["TEXCOORD_0"] = uv_index
-        json_data["materials"][0]["pbrMetallicRoughness"] = {"baseColorTexture": {"index": 0}}
-        json_data.update(
-            {
-                "textures": [{"source": 0}],
-                "images": [{"mimeType": "image/png", "bufferView": texture_index}],
-            }
-        )
+    if json_images:
+        json_data["images"] = json_images
+    if json_textures:
+        json_data["textures"] = json_textures
 
     json_chunk_data = bytearray(json.dumps(json_data).encode("utf8"))
     while len(json_chunk_data) % 4:
@@ -180,16 +226,18 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: WDB.Gif | None, filenam
 def export_wdb_model(wdb: WDB, model: WDB.Model) -> int:
     result = 0
     for lod_index, lod in enumerate(model.lods):
+        lod_name = f"{model.name}_L{lod_index}"
         for mesh_index, mesh in enumerate(lod.meshes):
             if mesh.texture_name != "":
                 texture = wdb.texture_by_name(mesh.texture_name)
             else:
                 texture = None
             assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
-            mesh_name = f"{model.name}_L{lod_index}_M{mesh_index}"
-            filename = f"{mesh_name}.glb"
-            write_gltf2(mesh, mesh_name, texture, f"extract/{filename}")
+            mesh_name = f"{lod_name}_M{mesh_index}"
+            write_gltf2_mesh(mesh, mesh_name, texture, f"extract/{mesh_name}.glb")
             result += 1
+        write_gltf2_lod(wdb, lod, lod_name, f"extract/{lod_name}.glb")
+        result += 1
     return result
 
 
