@@ -230,13 +230,14 @@ class WDB:
             assert len(mesh_vertices) == num_mesh_verts, f"{len(mesh_vertices)=} != {num_mesh_verts=}"
             assert len(mesh_uv) in [0, num_mesh_verts], f"{len(mesh_uv)=} != {num_polys=}"
 
-            red, green, blue, alpha, shading = struct.unpack("<BBBfb3x", self._file.read(3 + 4 + 4))
+            red, green, blue, alpha, shading = struct.unpack("<BBBfB3x", self._file.read(3 + 4 + 4))
             texture_name = self._read_str()
             material_name = self._read_str()
+            color = WDB.Color(red, green, blue, alpha)
             shading = WDB.Shading(shading)
             logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
 
-            result.append(WDB.Mesh(mesh_vertices, mesh_normals, mesh_uv, vertex_indices, WDB.Color(red, green, blue, alpha), texture_name, material_name))
+            result.append(WDB.Mesh(mesh_vertices, mesh_normals, mesh_uv, vertex_indices, color, texture_name, material_name))
 
         return WDB.Lod(result)
 
