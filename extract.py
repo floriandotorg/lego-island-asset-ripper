@@ -120,7 +120,7 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: WDB.Gif | None, filenam
     extend_bin_chunk("<H", mesh.indices, ELEMENT_ARRAY_BUFFER, USHORT, "SCALAR")
     assert bool(mesh.uvs) == bool(texture)
     if mesh.uvs:
-        uv_index = extend_bin_chunk("<ff", [(1 - uv[0], uv[1]) for uv in mesh.uvs], ARRAY_BUFFER, FLOAT, "VEC2")
+        uv_index = extend_bin_chunk("<ff", mesh.uvs, ARRAY_BUFFER, FLOAT, "VEC2")
         texture_index = append_bin_chunk(texture, None)
     else:
         uv_index = None

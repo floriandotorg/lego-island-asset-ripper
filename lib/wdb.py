@@ -104,7 +104,7 @@ class WDB:
 
     def _read_vertex(self) -> tuple[float, float, float]:
         x, y, z = struct.unpack("<fff", self._file.read(12))
-        return x, y, z
+        return -x, y, z
 
     def _read_vertices(self, count) -> list[tuple[float, float, float]]:
         vertices = []
@@ -224,6 +224,8 @@ class WDB:
                         mesh_uv.append(uv_coordinates[texture_index])
                 else:
                     vertex_indices.append(vertex_index_packed & 0x7fff)
+            for i in range(0, len(vertex_indices), 3):
+                vertex_indices[i], vertex_indices[i + 2] = vertex_indices[i + 2], vertex_indices[i]
             assert len(vertex_indices) == num_polys * 3
             assert len(mesh_vertices) == num_mesh_verts, f"{len(mesh_vertices)=} != {num_mesh_verts=}"
             assert len(mesh_uv) in [0, num_mesh_verts], f"{len(mesh_uv)=} != {num_polys=}"
