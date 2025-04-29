@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from multiprocessing import Pool
 from tkinter import filedialog
-from typing import BinaryIO, Optional, Union
+from typing import Any, BinaryIO, Union
 
 from lib.flc import FLC
 from lib.iso import ISO9660
@@ -65,7 +65,7 @@ def write_png(width: int, height: int, data: bytes, color: ColorSpace, stream: B
     write_chunk(b"IEND", b"")
 
 
-def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], filename: str) -> None:
+def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: WDB.Gif | None, filename: str) -> None:
     def extend_gltf_chunk(type: bytes, content: bytes) -> bytes:
         result = bytearray()
         result.extend(struct.pack("<I4s", len(content), type))
@@ -84,33 +84,44 @@ def write_gltf2(mesh: WDB.Mesh, mesh_name: str, texture: Optional[WDB.Gif], file
 
     bin_chunk_data = bytearray()
     buffer_views = []
-    accessors = []
+    accessors: list[dict[str, Any]] = []
 
-    def append_bin_chunk(data: bytes, target: int) -> int:
+    def append_bin_chunk(data: bytes, target: int | None) -> int:
         buffer_view_offset = len(bin_chunk_data)
         bin_chunk_data.extend(data)
         length = len(bin_chunk_data) - buffer_view_offset
+        while len(bin_chunk_data) % 4:
+            bin_chunk_data.append(0)
         buffer_view_index = len(buffer_views)
-        buffer_views.append({"buffer": 0, "byteOffset": buffer_view_offset, "byteLength": length, "target": target})
+        buffer_view = {"buffer": 0, "byteOffset": buffer_view_offset, "byteLength": length}
+        if target is not None:
+            buffer_view["target"] = target
+        buffer_views.append(buffer_view)
         return buffer_view_index
 
-    def extend_bin_chunk(fmt: str, data: list, target: int, type: tuple[int, str]) -> int:
+    def extend_bin_chunk(fmt: str, data: list, target: int | None, componentType: int, type: str) -> int:
         chunk_data = bytearray()
         for entry in data:
             if not isinstance(entry, tuple):
                 entry = (entry,)
             chunk_data.extend(struct.pack(fmt, *entry))
         buffer_view_index = append_bin_chunk(chunk_data, target)
-        accessors.append({"bufferView": buffer_view_index, "componentType": type[0], "count": len(data), "type": type[1]})
+        accessors.append({"bufferView": buffer_view_index, "componentType": componentType, "count": len(data), "type": type})
         return buffer_view_index
 
-    extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, (FLOAT, "VEC3"))
-    extend_bin_chunk("<fff", mesh.normals, ARRAY_BUFFER, (FLOAT, "VEC3"))
-    extend_bin_chunk("<H", mesh.indices, ELEMENT_ARRAY_BUFFER, (USHORT, "SCALAR"))
+    extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, FLOAT, "VEC3")
+    min_vertex = [min(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
+    max_vertex = [max(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
+    accessors[-1].update({
+        "min": min_vertex,
+        "max": max_vertex,
+    })
+    extend_bin_chunk("<fff", mesh.normals, ARRAY_BUFFER, FLOAT, "VEC3")
+    extend_bin_chunk("<H", mesh.indices, ELEMENT_ARRAY_BUFFER, USHORT, "SCALAR")
     assert bool(mesh.uvs) == bool(texture)
     if mesh.uvs:
-        uv_index = extend_bin_chunk("<ff", [(1 - uv[0], uv[1]) for uv in mesh.uvs], ARRAY_BUFFER, (FLOAT, "VEC2"))
-        texture_index = append_bin_chunk(texture, ARRAY_BUFFER)
+        uv_index = extend_bin_chunk("<ff", [(1 - uv[0], uv[1]) for uv in mesh.uvs], ARRAY_BUFFER, FLOAT, "VEC2")
+        texture_index = append_bin_chunk(texture, None)
     else:
         uv_index = None
         texture_index = None
