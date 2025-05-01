@@ -35,6 +35,7 @@ class WDB:
     class Model:
         name: str
         lods: list['WDB.Lod']
+        texture_name: str
 
     @dataclass
     class Lod:
@@ -239,12 +240,19 @@ class WDB:
 
         return WDB.Lod(result)
 
-    def _read_roi(self, scanned_model_names: set[str]) -> None:
+    def _read_roi(self, scanned_model_names: set[str], offset: int, model_data: list, path: str = "") -> None:
         model_name = self._read_str()
         logger.debug(f"{model_name=}")
 
+        if path:
+            path += "/"
+        path += model_name
+
+        logger.info(f"Reading '{path}'")
+
         if model_name in scanned_model_names:
-            logger.warning(f"Already scanned model {model_name}!")
+            # TODO: Either this is okay, or determine how we can avoid this
+            logger.warning(f"Already scanned model '{model_name}'!")
         scanned_model_names.add(model_name)
 
         center = self._read_vertex()
@@ -261,7 +269,6 @@ class WDB:
 
         texture_name = self._read_str()
         logger.debug(f"{texture_name=}")
-        assert texture_name == ''
 
         defined_elsewhere = struct.unpack("<b", self._file.read(1))[0]
         logger.debug(f"{defined_elsewhere=}")
@@ -275,7 +282,14 @@ class WDB:
             if num_lods != 0:
                 end_component_offset = struct.unpack("<I", self._file.read(4))[0]
                 lods: list[WDB.Lod] = [self._read_lod() for _ in range(num_lods)]
-                self._models.append(WDB.Model(model_name, lods))
+                logger.info(f"Loaded {len(lods)} for {path}")
+                self._models.append(WDB.Model(model_name, lods, texture_name))
+                self._file.seek(offset + end_component_offset)
+
+        num_rois = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{num_rois=}")
+        for _ in range(num_rois):
+            self._read_roi(offset, model_data, scanned_model_names, path)
 
     def __init__(self, file: io.BufferedIOBase):
         self._file = file
@@ -379,7 +393,7 @@ class WDB:
 
             self._read_animation_tree()
 
-            self._read_roi(scanned_model_names)
+            self._read_roi(scanned_model_names, offset, locations_for_offsets[offset])
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
