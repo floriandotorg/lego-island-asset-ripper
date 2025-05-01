@@ -18,7 +18,6 @@ from lib.smk import SMK
 from lib.wdb import WDB
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 class ColorSpace(IntEnum):
@@ -511,6 +510,7 @@ def balanced_chunks(data: list[File], n: int) -> list[list[File]]:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     si_files: list[File] = []
     wdb_files: list[io.BytesIO] = []
 
