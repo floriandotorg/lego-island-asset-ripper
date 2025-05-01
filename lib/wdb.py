@@ -239,6 +239,44 @@ class WDB:
 
         return WDB.Lod(result)
 
+    def _read_roi(self, scanned_model_names: set[str]) -> None:
+        model_name = self._read_str()
+        logger.debug(f"{model_name=}")
+
+        if model_name in scanned_model_names:
+            logger.warning(f"Already scanned model {model_name}!")
+        scanned_model_names.add(model_name)
+
+        center = self._read_vertex()
+        logger.debug(f"{center=}")
+
+        radius = struct.unpack("<f", self._file.read(4))[0]
+        logger.debug(f"{radius=}")
+
+        min = self._read_vertex()
+        logger.debug(f"{min=}")
+
+        max = self._read_vertex()
+        logger.debug(f"{max=}")
+
+        texture_name = self._read_str()
+        logger.debug(f"{texture_name=}")
+        assert texture_name == ''
+
+        defined_elsewhere = struct.unpack("<b", self._file.read(1))[0]
+        logger.debug(f"{defined_elsewhere=}")
+
+        if defined_elsewhere != 0:
+            roi_name = model_name.rstrip("0123456789")
+            logger.debug(f"{roi_name=}")
+        else:
+            num_lods = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{num_lods=}")
+            if num_lods != 0:
+                end_component_offset = struct.unpack("<I", self._file.read(4))[0]
+                lods: list[WDB.Lod] = [self._read_lod() for _ in range(num_lods)]
+                self._models.append(WDB.Model(model_name, lods))
+
     def __init__(self, file: io.BufferedIOBase):
         self._file = file
         num_worlds = struct.unpack("<I", self._file.read(4))[0]
@@ -341,42 +379,7 @@ class WDB:
 
             self._read_animation_tree()
 
-            model_name = self._read_str()
-            logger.debug(f"{model_name=}")
-
-            if model_name in scanned_model_names:
-                logger.warning(f"Already scanned model {model_name}!")
-            scanned_model_names.add(model_name)
-
-            center = self._read_vertex()
-            logger.debug(f"{center=}")
-
-            radius = struct.unpack("<f", self._file.read(4))[0]
-            logger.debug(f"{radius=}")
-
-            min = self._read_vertex()
-            logger.debug(f"{min=}")
-
-            max = self._read_vertex()
-            logger.debug(f"{max=}")
-
-            texture_name = self._read_str()
-            logger.debug(f"{texture_name=}")
-            assert texture_name == ''
-
-            defined_elsewhere = struct.unpack("<b", self._file.read(1))[0]
-            logger.debug(f"{defined_elsewhere=}")
-
-            if defined_elsewhere != 0:
-                roi_name = model_name.rstrip("0123456789")
-                logger.debug(f"{roi_name=}")
-            else:
-                num_lods = struct.unpack("<I", self._file.read(4))[0]
-                logger.debug(f"{num_lods=}")
-                if num_lods != 0:
-                    end_component_offset = struct.unpack("<I", self._file.read(4))[0]
-                    lods: list[WDB.Lod] = [self._read_lod() for _ in range(num_lods)]
-                    self._models.append(WDB.Model(model_name, lods))
+            self._read_roi(scanned_model_names)
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
