@@ -2,7 +2,9 @@
 
 This is an asset ripper for the classic 1997 game LEGO Island. It extracts all assets, including music, dialogs, cutscenes, 3d models, textures and animations (WiP).
 
-![lego_island_blender](https://github.com/user-attachments/assets/5b8a5d9f-ad12-4b9f-9428-80a4113667bb)
+![lego_island_blender](https://github.com/user-attachments/assets/a0587ce7-7241-4262-ad6d-78dfae8bea8f)
+
+
 ---
 
 ## Supported Formats
