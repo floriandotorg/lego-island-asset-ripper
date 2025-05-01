@@ -185,10 +185,8 @@ class WDB:
 
         num_meshes = struct.unpack("<I", self._file.read(4))[0]
         if not num_meshes:
-            # Clear Flag bit4?
-            raise Exception(f"{num_meshes=}")
+            return WDB.Lod([])
 
-        # Set Flag bit4?
         num_verts, num_normals = struct.unpack("<HH", self._file.read(4))
         num_normals //= 2
         num_text_verts = struct.unpack("<I", self._file.read(4))[0]
