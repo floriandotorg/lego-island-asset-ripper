@@ -111,13 +111,39 @@ class WDB:
             vertices.append(self._read_vertex())
         return vertices
 
-    def _read_animation_tree(self):
+    @dataclass
+    class AnimationNode:
+        name: str
+        translation_keys: list['WDB.AnimationNode.VertexKey']
+        rotation_keys: list['WDB.AnimationNode.RotationKey']
+        scale_keys: list['WDB.AnimationNode.VertexKey']
+        morph_keys: list['WDB.AnimationNode.MorphKey']
+        children: list['WDB.AnimationNode']
+
+        @dataclass
+        class VertexKey:
+            time: int
+            flags: int
+            vertex: tuple[float, float, float]
+
+        @dataclass
+        class RotationKey:
+            vertexKey: 'WDB.AnimationNode.VertexKey'
+            angle: float
+
+        @dataclass
+        class MorphKey:
+            time: int
+            flags: int
+            bool: bool
+
+    def _read_animation_tree(self) -> AnimationNode:
         animation_data_name = self._read_str()
         logger.debug(f"{animation_data_name=}")
 
         num_translation_keys = struct.unpack("<H", self._file.read(2))[0]
         logger.debug(f"{num_translation_keys=}")
-
+        translation_keys = []
         for _ in range(num_translation_keys):
             time_and_flags = struct.unpack("<I", self._file.read(4))[0]
             flags = time_and_flags >> 24
@@ -129,10 +155,11 @@ class WDB:
 
             logger.debug(f"{flags=} {time=}")
             logger.debug(f"{some_vertex=}")
+            translation_keys.append(WDB.AnimationNode.VertexKey(time, flags, some_vertex))
 
         num_rotation_keys = struct.unpack("<H", self._file.read(2))[0]
         logger.debug(f"{num_rotation_keys=}")
-
+        rotation_keys = []
         for _ in range(num_rotation_keys):
             time_and_flags = struct.unpack("<I", self._file.read(4))[0]
             flags = time_and_flags >> 24
@@ -145,10 +172,12 @@ class WDB:
                 flags |= 1
 
             logger.debug(f"{flags=} {time=} {angle=} {some_vertex=}")
+            vertexKey = WDB.AnimationNode.VertexKey(time, flags, some_vertex)
+            rotation_keys.append(WDB.AnimationNode.RotationKey(vertexKey, angle))
 
         num_scale_keys = struct.unpack("<H", self._file.read(2))[0]
         logger.debug(f"{num_scale_keys=}")
-
+        scale_keys = []
         for _ in range(num_scale_keys):
             time_and_flags = struct.unpack("<I", self._file.read(4))[0]
             flags = time_and_flags >> 24
@@ -159,10 +188,11 @@ class WDB:
                 flags |= 1
 
             logger.debug(f"{flags=} {time=} {some_vertex=}")
+            scale_keys.append(WDB.AnimationNode.VertexKey(time, flags, some_vertex))
 
         num_morph_keys = struct.unpack("<H", self._file.read(2))[0]
         logger.debug(f"{num_morph_keys=}")
-
+        morph_keys = []
         for _ in range(num_morph_keys):
             time_and_flags = struct.unpack("<I", self._file.read(4))[0]
             flags = time_and_flags >> 24
@@ -170,12 +200,14 @@ class WDB:
 
             some_bool = struct.unpack("<b", self._file.read(1))[0]
             logger.debug(f"{flags=} {time=} {some_bool=}")
+            morph_keys.append(WDB.AnimationNode.MorphKey(time, flags, some_bool))
 
         num_children = struct.unpack("<I", self._file.read(4))[0]
         logger.debug(f"{num_children=}")
-
+        children = []
         for _ in range(num_children):
-            self._read_animation_tree()
+            children.append(self._read_animation_tree())
+        return WDB.AnimationNode(animation_data_name, translation_keys, rotation_keys, scale_keys, morph_keys, children)
 
     def _read_lod(self) -> "WDB.Lod":
         unknown8 = struct.unpack("<I", self._file.read(4))[0]
