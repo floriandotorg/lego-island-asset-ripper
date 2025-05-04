@@ -1,9 +1,9 @@
 import io
-from itertools import zip_longest
 import logging
 import struct
 from dataclasses import dataclass
 from enum import IntEnum
+from itertools import zip_longest
 from typing import cast
 
 logger = logging.getLogger(__name__)
@@ -18,11 +18,9 @@ class WDB:
         image: bytes
 
     class Shading(IntEnum):
-        WireFrame = 0
-        UnlitFlat = 1
-        Flat = 2
-        Gouraud = 3
-        Phong = 4
+        Flat = 0
+        Gouraud = 1
+        WireFrame = 2
 
     @dataclass
     class Color:
@@ -34,12 +32,12 @@ class WDB:
     @dataclass
     class Model:
         name: str
-        lods: list['WDB.Lod']
+        lods: list["WDB.Lod"]
         texture_name: str
 
     @dataclass
     class Lod:
-        meshes: list['WDB.Mesh']
+        meshes: list["WDB.Mesh"]
 
     @dataclass
     class Mesh:
@@ -47,7 +45,7 @@ class WDB:
         normals: list[tuple[float, float, float]]
         uvs: list[tuple[float, float]]
         indices: list[int]
-        color: 'WDB.Color'
+        color: "WDB.Color"
         texture_name: str
         material_name: str
 
@@ -179,7 +177,7 @@ class WDB:
         for _ in range(num_children):
             self._read_animation_tree()
 
-    def _read_lod(self) -> 'WDB.Lod':
+    def _read_lod(self) -> "WDB.Lod":
         unknown8 = struct.unpack("<I", self._file.read(4))[0]
         if unknown8 & 0xFFFFFF04:
             raise Exception(f"{unknown8=:08x}")
@@ -215,14 +213,14 @@ class WDB:
                 if vertex_index_packed & 0x80000000:
                     vertex_indices.append(len(mesh_vertices))
 
-                    global_vertex_index = vertex_index_packed & 0x7fff
+                    global_vertex_index = vertex_index_packed & 0x7FFF
                     mesh_vertices.append(vertices[global_vertex_index])
-                    global_normal_index = (vertex_index_packed >> 16) & 0x7fff
+                    global_normal_index = (vertex_index_packed >> 16) & 0x7FFF
                     mesh_normals.append(normals[global_normal_index])
                     if texture_index is not None and uv_coordinates:
                         mesh_uv.append(uv_coordinates[texture_index])
                 else:
-                    vertex_indices.append(vertex_index_packed & 0x7fff)
+                    vertex_indices.append(vertex_index_packed & 0x7FFF)
             for i in range(0, len(vertex_indices), 3):
                 vertex_indices[i], vertex_indices[i + 2] = vertex_indices[i + 2], vertex_indices[i]
             assert len(vertex_indices) == num_polys * 3
