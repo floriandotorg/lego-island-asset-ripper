@@ -141,7 +141,7 @@ class WDB:
                 texture_indices = [struct.unpack("<I", self._file.read(4))[0] for _ in range(num_polys * 3)]
             else:
                 texture_indices = []
-            mesh_vertices = []
+            mesh_vertices: list[tuple[float, float, float]] = []
             mesh_normals = []
             mesh_uv = []
             vertex_indices = []
@@ -174,7 +174,7 @@ class WDB:
 
         return WDB.Lod(result)
 
-    def _read_roi(self, scanned_model_names: set[str], offset: int, model_data: list, path: str = "") -> None:
+    def _read_roi(self, scanned_model_names: set[str], offset: int, path: str = "") -> None:
         model_name = self._read_str()
         logger.debug(f"{model_name=}")
 
@@ -223,7 +223,7 @@ class WDB:
         num_rois = struct.unpack("<I", self._file.read(4))[0]
         logger.debug(f"{num_rois=}")
         for _ in range(num_rois):
-            self._read_roi(offset, model_data, scanned_model_names, path)
+            self._read_roi(scanned_model_names, offset, path)
 
     def __init__(self, file: io.BufferedIOBase):
         self._file = file
@@ -289,7 +289,7 @@ class WDB:
                     self._textures.append(self._read_gif(title=texture.title[1:]))
 
         scanned_offsets = set()
-        scanned_model_names = set()
+        scanned_model_names: set[str] = set()
         for offset in models_offsets:
             if offset in scanned_offsets:
                 logger.info(f"Already scanned offset {offset}, skipping")
@@ -327,7 +327,7 @@ class WDB:
 
             animation = AnimationNode.read(self._file)
 
-            self._read_roi(scanned_model_names, offset, locations_for_offsets[offset])
+            self._read_roi(scanned_model_names, offset)
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
