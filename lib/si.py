@@ -136,8 +136,7 @@ class SI:
                 id, flags, duration, loops, *coords = struct.unpack("<2I4x2I9d", self._file.read(92))
                 extra_data_length = self._read_uint16()
                 if extra_data_length:
-                    extra_data = self._file.read(extra_data_length)
-                    extra_data = extra_data[:-1].decode("ascii")
+                    extra_data = self._file.read(extra_data_length)[:-1].decode("ascii")
                 else:
                     extra_data = ""
                 filename: Optional[str] = None
@@ -153,22 +152,7 @@ class SI:
                 (loc_x, loc_y, loc_z) = tuple(map(float, coords[:3]))
                 (dir_x, dir_y, dir_z) = tuple(map(float, coords[3:6]))
                 (up_x, up_y, up_z) = tuple(map(float, coords[6:]))
-                obj = SI.Object(
-                    type,
-                    presenter,
-                    name,
-                    id,
-                    flags,
-                    duration,
-                    loops,
-                    (loc_x, loc_y, loc_z),
-                    (dir_x, dir_y, dir_z),
-                    (up_x, up_y, up_z),
-                    filename=filename,
-                    file_type=file_type,
-                    volume=volume,
-                    extra_data=extra_data
-                )
+                obj = SI.Object(type, presenter, name, id, flags, duration, loops, (loc_x, loc_y, loc_z), (dir_x, dir_y, dir_z), (up_x, up_y, up_z), filename=filename, file_type=file_type, volume=volume, extra_data=extra_data)
                 self._object_list[id] = obj
                 logger.debug(obj)
             case b"MxCh":
