@@ -33,8 +33,14 @@ class WDB:
 
     @dataclass
     class Model:
+        roi: 'WDB.Roi'
+        animation: AnimationNode
+
+    @dataclass
+    class Roi:
         name: str
         lods: list["WDB.Lod"]
+        children: list["WDB.Roi"]
         texture_name: str
 
     @dataclass
@@ -207,6 +213,7 @@ class WDB:
         defined_elsewhere = struct.unpack("<b", self._file.read(1))[0]
         logger.debug(f"{defined_elsewhere=}")
 
+        lods: list[WDB.Lod] = []
         if defined_elsewhere != 0:
             roi_name = model_name.rstrip("0123456789")
             logger.debug(f"{roi_name=}")
@@ -215,15 +222,18 @@ class WDB:
             logger.debug(f"{num_lods=}")
             if num_lods != 0:
                 end_component_offset = struct.unpack("<I", self._file.read(4))[0]
-                lods: list[WDB.Lod] = [self._read_lod() for _ in range(num_lods)]
+                lods = [self._read_lod() for _ in range(num_lods)]
                 logger.info(f"Loaded {len(lods)} for {path}")
                 self._models.append(WDB.Model(model_name, lods, texture_name))
                 self._file.seek(offset + end_component_offset)
 
         num_rois = struct.unpack("<I", self._file.read(4))[0]
         logger.debug(f"{num_rois=}")
+        children = []
         for _ in range(num_rois):
-            self._read_roi(scanned_model_names, offset, path)
+            children.append(self._read_roi(scanned_model_names, offset, model_data, path))
+
+        return WDB.Roi(model_name, lods, children, texture_name)
 
     def __init__(self, file: io.BufferedIOBase):
         self._file = file
@@ -327,7 +337,8 @@ class WDB:
 
             animation = AnimationNode.read(self._file)
 
-            self._read_roi(scanned_model_names, offset)
+            roi = self._read_roi(scanned_model_names, offset)
+            self._models.append(WDB.Model(roi, animation))
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures, skip_textures = struct.unpack("<II", self._file.read(8))

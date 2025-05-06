@@ -76,7 +76,8 @@ def write_gltf2_lod(wdb: WDB, lod: WDB.Lod, lod_name: str, filename: str) -> Non
         else:
             texture = None
         meshes_textures.append((mesh, texture))
-    _write_gltf2(meshes_textures, lod_name, filename, False)
+    if meshes_textures:
+        _write_gltf2(meshes_textures, lod_name, filename, False)
 
 
 def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name: str, filename: str, mesh_export: bool) -> None:
@@ -222,10 +223,11 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
         file.write(contents)
 
 
-def export_wdb_model(wdb: WDB, model: WDB.Model) -> int:
+def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, prefix: str) -> int:
+    prefix = f"{prefix}{roi.name}"
     result = 0
-    for lod_index, lod in enumerate(model.lods):
-        lod_name = f"{model.name}_L{lod_index}"
+    for lod_index, lod in enumerate(roi.lods):
+        lod_name = f"{prefix}_L{lod_index}"
         for mesh_index, mesh in enumerate(lod.meshes):
             if mesh.texture_name != "":
                 texture = wdb.texture_by_name(mesh.texture_name)
@@ -233,11 +235,17 @@ def export_wdb_model(wdb: WDB, model: WDB.Model) -> int:
                 texture = None
             assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
             mesh_name = f"{lod_name}_M{mesh_index}"
-            write_gltf2_mesh(mesh, mesh_name, texture, f"extract/{mesh_name}.glb")
+            write_gltf2_mesh(mesh, mesh_name, texture, f"extract/model/{mesh_name}.glb")
             result += 1
-        write_gltf2_lod(wdb, lod, lod_name, f"extract/{lod_name}.glb")
+        write_gltf2_lod(wdb, lod, lod_name, f"extract/model/{lod_name}.glb")
         result += 1
+    for child in roi.children:
+        _export_wdb_roi(wdb, child, f"{prefix}_R")
     return result
+
+
+def export_wdb_model(wdb: WDB, model: WDB.Model) -> int:
+    return _export_wdb_roi(wdb, model.roi, "")
 
 
 def write_bitmap(filename: str, obj: SI.Object) -> None:
