@@ -98,7 +98,7 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
     ELEMENT_ARRAY_BUFFER = ARRAY_BUFFER + 1
 
     bin_chunk_data = bytearray()
-    buffer_views = []
+    buffer_views: list[dict] = []
     accessors: list[dict[str, Any]] = []
 
     def append_bin_chunk(data: bytes, target: int | None) -> int:
@@ -124,10 +124,10 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
         accessors.append({"bufferView": buffer_view_index, "componentType": componentType, "count": len(data), "type": type})
         return buffer_view_index
 
-    json_textures = []
-    json_images = []
-    json_meshes = []
-    json_materials = []
+    json_textures: list[dict] = []
+    json_images: list[dict] = []
+    json_meshes: list[dict] = []
+    json_materials: list[dict] = []
     for mesh_index, mesh in enumerate(meshes):
         vertex_index = extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, FLOAT, "VEC3")
         min_vertex = [min(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
@@ -169,8 +169,8 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
         if texture:
             with io.BytesIO() as texture_file:
                 write_png(texture.width, texture.height, texture.image, ColorSpace.RGB, texture_file)
-                texture = texture_file.getvalue()
-            texture_index = append_bin_chunk(texture, None)
+                texture_data = texture_file.getvalue()
+            texture_index = append_bin_chunk(texture_data, None)
             json_materials[mesh_index]["pbrMetallicRoughness"] = {
                 "baseColorTexture": {
                     "index": len(json_textures)
@@ -184,7 +184,7 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
                 "bufferView": texture_index
             })
 
-    nodes = []
+    nodes: list[dict[str, Any]] = []
     if not mesh_export:
         nodes.append({
             "name": name,
