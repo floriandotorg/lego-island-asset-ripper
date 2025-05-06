@@ -180,7 +180,7 @@ class WDB:
 
         return WDB.Lod(result)
 
-    def _read_roi(self, scanned_model_names: set[str], offset: int, path: str = "") -> None:
+    def _read_roi(self, scanned_model_names: set[str], offset: int, path: str = "") -> "WDB.Roi":
         model_name = self._read_str()
         logger.debug(f"{model_name=}")
 
@@ -224,14 +224,13 @@ class WDB:
                 end_component_offset = struct.unpack("<I", self._file.read(4))[0]
                 lods = [self._read_lod() for _ in range(num_lods)]
                 logger.info(f"Loaded {len(lods)} for {path}")
-                self._models.append(WDB.Model(model_name, lods, texture_name))
                 self._file.seek(offset + end_component_offset)
 
         num_rois = struct.unpack("<I", self._file.read(4))[0]
         logger.debug(f"{num_rois=}")
         children = []
         for _ in range(num_rois):
-            children.append(self._read_roi(scanned_model_names, offset, model_data, path))
+            children.append(self._read_roi(scanned_model_names, offset, path))
 
         return WDB.Roi(model_name, lods, children, texture_name)
 

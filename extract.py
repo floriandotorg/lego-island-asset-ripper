@@ -235,9 +235,9 @@ def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, prefix: str) -> int:
                 texture = None
             assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
             mesh_name = f"{lod_name}_M{mesh_index}"
-            write_gltf2_mesh(mesh, mesh_name, texture, f"extract/model/{mesh_name}.glb")
+            write_gltf2_mesh(mesh, mesh_name, texture, f"extract/{mesh_name}.glb")
             result += 1
-        write_gltf2_lod(wdb, lod, lod_name, f"extract/model/{lod_name}.glb")
+        write_gltf2_lod(wdb, lod, lod_name, f"extract/{lod_name}.glb")
         result += 1
     for child in roi.children:
         _export_wdb_roi(wdb, child, f"{prefix}_R")
