@@ -133,10 +133,12 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
         vertex_index = extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, FLOAT, "VEC3")
         min_vertex = [min(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
         max_vertex = [max(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
-        accessors[-1].update({
-            "min": min_vertex,
-            "max": max_vertex,
-        })
+        accessors[-1].update(
+            {
+                "min": min_vertex,
+                "max": max_vertex,
+            }
+        )
         normal_index = extend_bin_chunk("<fff", mesh.normals, ARRAY_BUFFER, FLOAT, "VEC3")
         index_index = extend_bin_chunk("<H", mesh.indices, ELEMENT_ARRAY_BUFFER, USHORT, "SCALAR")
 
@@ -148,16 +150,12 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
                         "NORMAL": normal_index,
                     },
                     "indices": index_index,
-                    "material": len(json_materials)
+                    "material": len(json_materials),
                 }
             ],
-            "name": name if mesh_export else f"{name}_M{mesh_index}"
+            "name": name if mesh_export else f"{name}_M{mesh_index}",
         }
-        json_material = {
-            "pbrMetallicRoughness": {
-                "baseColorFactor": [mesh.color.red / 255, mesh.color.green / 255, mesh.color.blue / 255, 1 - mesh.color.alpha]
-            }
-        }
+        json_material = {"pbrMetallicRoughness": {"baseColorFactor": [mesh.color.red / 255, mesh.color.green / 255, mesh.color.blue / 255, 1 - mesh.color.alpha]}}
         json_meshes.append(json_mesh_data)
         json_materials.append(json_material)
         if mesh.uvs:
@@ -172,26 +170,19 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
                 write_png(texture.width, texture.height, texture.image, ColorSpace.RGB, texture_file)
                 texture_data = texture_file.getvalue()
             texture_index = append_bin_chunk(texture_data, None)
-            json_materials[mesh_index]["pbrMetallicRoughness"] = {
-                "baseColorTexture": {
-                    "index": len(json_textures)
-                }
-            }
-            json_textures.append({
-                "source": len(json_images)
-            })
-            json_images.append({
-                "mimeType": "image/png",
-                "bufferView": texture_index
-            })
+            json_materials[mesh_index]["pbrMetallicRoughness"] = {"baseColorTexture": {"index": len(json_textures)}}
+            json_textures.append({"source": len(json_images)})
+            json_images.append({"mimeType": "image/png", "bufferView": texture_index})
 
     nodes: list[dict[str, Any]] = []
     if not mesh_export:
-        nodes.append({
-            "name": name,
-            "children": list(range(1, len(json_meshes) + 1)),
-        })
-    nodes.extend({ "mesh": index } for index in range(len(json_meshes)))
+        nodes.append(
+            {
+                "name": name,
+                "children": list(range(1, len(json_meshes) + 1)),
+            }
+        )
+    nodes.extend({"mesh": index} for index in range(len(json_meshes)))
 
     json_data = {
         "asset": {"version": "2.0"},
@@ -235,9 +226,11 @@ def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, prefix: str) -> int:
                 texture = None
             assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
             mesh_name = f"{lod_name}_M{mesh_index}"
-            write_gltf2_mesh(mesh, mesh_name, texture, f"extract/{mesh_name}.glb")
+            os.makedirs(f"extract/WORLD.WDB/{roi.name}", exist_ok=True)
+            write_gltf2_mesh(mesh, mesh_name, texture, f"extract/WORLD.WDB/{roi.name}/{mesh_name}.glb")
             result += 1
-        write_gltf2_lod(wdb, lod, lod_name, f"extract/{lod_name}.glb")
+        os.makedirs(f"extract/WORLD.WDB/{roi.name}", exist_ok=True)
+        write_gltf2_lod(wdb, lod, lod_name, f"extract/WORLD.WDB/{roi.name}/{lod_name}.glb")
         result += 1
     for child in roi.children:
         _export_wdb_roi(wdb, child, f"{prefix}_R")
@@ -265,6 +258,51 @@ def write_flc(dest_file: io.BufferedIOBase, obj: SI.Object) -> None:
             dest_file.write(b"\x10\x00\x00\x00\xfa\xf1\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
             continue
         dest_file.write(chunk[20:])
+
+
+def write_gif(gif: WDB.Gif, filename: str) -> None:
+    with open(filename, "wb") as file:
+        width = gif.width
+        height = gif.height
+        pad = b"\x00" * ((4 - (width * 3) % 4) % 4)
+        header_size = 54
+        bf_size = header_size + (width * 3 + len(pad)) * height
+        bi_size = bf_size - header_size
+
+        # BMP Header (14 bytes)
+        file.write(struct.pack("<2sIHHI", b"BM", bf_size, 0, 0, header_size))
+
+        # DIB Header (40 bytes)
+        file.write(
+            struct.pack(
+                "<IIiHHIIIIII",
+                40,  # DIB header size
+                width,  # Width
+                -height,  # Height
+                1,  # Color planes
+                24,  # Bits per pixel (RGB = 24)
+                0,  # No compression
+                bi_size,  # Image size
+                0,  # Horizontal resolution (pixels/meter)
+                0,  # Vertical resolution (pixels/meter)
+                0,  # Number of colors in palette
+                0,  # Important colors
+            )
+        )
+
+        bgr_frame = bytearray(len(gif.image))
+        bf = memoryview(bgr_frame)
+        rf = memoryview(gif.image)
+        # Swap R and B:
+        bf[0::3] = rf[2::3]  # B
+        bf[1::3] = rf[1::3]  # G
+        bf[2::3] = rf[0::3]  # R
+
+        if pad:
+            row_size = width * 3
+            file.write(b"".join(bgr_frame[i : i + row_size] + pad for i in range(0, len(bgr_frame), row_size)))
+        else:
+            file.write(bgr_frame)
 
 
 def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
@@ -412,6 +450,8 @@ def write_smk_avi(video: Union[SMK, FLC], filename: str) -> None:
 
 
 def write_si(filename: str, obj: SI.Object) -> bool:
+    os.makedirs(f"extract/{filename}", exist_ok=True)
+
     match obj.file_type:
         case SI.FileType.WAV:
 
@@ -423,7 +463,7 @@ def write_si(filename: str, obj: SI.Object) -> bool:
                     result.append(0)
                 return bytes(result)
 
-            with open(f"extract/{filename}_{obj.id}.wav", "wb") as file:
+            with open(f"extract/{filename}/{obj.id}.wav", "wb") as file:
                 content = bytearray()
                 content.extend(b"WAVE")
                 content.extend(extend_wav_chunk(b"fmt ", obj.data[: obj.chunk_sizes[0]]))
@@ -431,27 +471,27 @@ def write_si(filename: str, obj: SI.Object) -> bool:
                 file.write(extend_wav_chunk(b"RIFF", content))
             return True
         case SI.FileType.STL:
-            write_bitmap(f"extract/{filename}_{obj.id}.bmp", obj)
+            write_bitmap(f"extract/{filename}/{obj.id}.bmp", obj)
         case SI.FileType.FLC:
             mem_file = io.BytesIO()
             write_flc(mem_file, obj)
             mem_file.seek(0)
-            with open(f"extract/{filename}_{obj.id}.flc", "wb") as file:
+            with open(f"extract/{filename}/{obj.id}.flc", "wb") as file:
                 file.write(mem_file.getvalue())
             mem_file.seek(0)
             try:
                 flc = FLC(mem_file)
-                write_flc_sprite_sheet(flc, f"extract/{filename}_{obj.id}_frames{len(flc.frames)}_fps{flc.fps}.bmp")
-                write_smk_avi(flc, f"extract/{filename}_{obj.id}.avi")
+                write_flc_sprite_sheet(flc, f"extract/{filename}/{obj.id}_frames{len(flc.frames)}_fps{flc.fps}.bmp")
+                write_smk_avi(flc, f"extract/{filename}/{obj.id}.avi")
             except Exception as e:
                 logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
                 return False
             return True
         case SI.FileType.SMK:
-            with open(f"extract/{filename}_{obj.id}.smk", "wb") as file:
+            with open(f"extract/{filename}/{obj.id}.smk", "wb") as file:
                 file.write(obj.data)
             smk = SMK(io.BytesIO(obj.data))
-            write_smk_avi(smk, f"extract/{filename}_{obj.id}.avi")
+            write_smk_avi(smk, f"extract/{filename}/{obj.id}.avi")
             return True
     return False
 
@@ -519,9 +559,11 @@ def balanced_chunks(data: list[File], n: int) -> list[list[File]]:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+
+    os.makedirs("extract", exist_ok=True)
+
     si_files: list[File] = []
     wdb_files: list[io.BytesIO] = []
-
     with ISO9660(get_iso_path()) as iso:
         for file in iso.filelist:
             if not file.endswith(".SI") and not file.endswith(".WDB"):
@@ -549,10 +591,17 @@ if __name__ == "__main__":
         results = pool.map_async(process_files, balanced_chunks(si_files, cpus))
 
         logger.info("Exporting WDB models ..")
+        os.makedirs("extract/WORLD.WDB", exist_ok=True)
         for wdb_file in wdb_files:
             wdb = WDB(wdb_file)
             for model in wdb.models:
                 exported_files += export_wdb_model(wdb, model)
+            for image in wdb.images:
+                write_gif(image, f"extract/WORLD.WDB/{model.roi.name}_{image.title}.bmp")
+            for texture in wdb.textures:
+                write_gif(texture, f"extract/WORLD.WDB/{model.roi.name}_{texture.title}.bmp")
+            for model_texture in wdb.model_textures:
+                write_gif(model_texture, f"extract/WORLD.WDB/{model.roi.name}_{model_texture.title}.bmp")
         logger.info("Exporting WDB models .. [done]")
 
         exported_files += sum(results.get())
