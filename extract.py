@@ -303,7 +303,7 @@ def write_gltf2_model(wdb: WDB, model: WDB.Model, filename: str, all_lods: bool)
     writer.write(filename)
 
 
-def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, prefix: str) -> int:
+def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, root_name: str, prefix: str) -> int:
     prefix = f"{prefix}{roi.name}"
     result = 0
     for lod_index, lod in enumerate(roi.lods):
@@ -315,20 +315,19 @@ def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, prefix: str) -> int:
                 texture = None
             assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
             mesh_name = f"{lod_name}_M{mesh_index}"
-            os.makedirs(f"extract/WORLD.WDB/{roi.name}", exist_ok=True)
-            write_gltf2_mesh(mesh, texture, mesh_name, f"extract/WORLD.WDB/{roi.name}/{mesh_name}.glb")
+            write_gltf2_mesh(mesh, texture, mesh_name, f"extract/WORLD.WDB/{root_name}/parts/{mesh_name}.glb")
             result += 1
-        os.makedirs(f"extract/WORLD.WDB/{roi.name}", exist_ok=True)
-        write_gltf2_lod(wdb, lod, lod_name, f"extract/WORLD.WDB/{roi.name}/{lod_name}.glb")
+        write_gltf2_lod(wdb, lod, lod_name, f"extract/WORLD.WDB/{root_name}/parts/{lod_name}.glb")
         result += 1
     for child in roi.children:
-        _export_wdb_roi(wdb, child, f"{prefix}_R")
+        _export_wdb_roi(wdb, child, root_name, f"{prefix}_R")
     return result
 
 
 def export_wdb_model(wdb: WDB, model: WDB.Model) -> int:
     file_count = 0
-    file_count += _export_wdb_roi(wdb, model.roi, "")
+    os.makedirs(f"extract/WORLD.WDB/{model.roi.name}/parts", exist_ok=True)
+    file_count += _export_wdb_roi(wdb, model.roi, model.roi.name, "")
     write_gltf2_model(wdb, model, f"extract/WORLD.WDB/{model.roi.name}/model.glb", False)
     file_count += 1
     write_gltf2_model(wdb, model, f"extract/WORLD.WDB/{model.roi.name}/all_lods.glb", True)
