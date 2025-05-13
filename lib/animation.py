@@ -62,8 +62,9 @@ class AnimationNode:
 
     @dataclass
     class RotationKey:
-        vertexKey: "AnimationNode.VertexKey"
-        angle: float
+        time: int
+        flags: int
+        quaternion: tuple[float, float, float, float]
 
     @dataclass
     class MorphKey:
@@ -105,16 +106,17 @@ class AnimationNode:
         for _ in range(num_rotation_keys):
             time, flags = AnimationNode._read_time_and_flags(reader)
 
-            angle = reader.read_float()
+            w = reader.read_float()
+            x = -reader.read_float()
+            y = reader.read_float()
+            z = reader.read_float()
 
-            some_vertex = reader.read_vertex()
             # Set flag, if the vertex is "not almost unset"
-            if angle != 1.0:
+            if w != 1.0:
                 flags |= 1
 
-            logger.debug(f"{flags=} {time=} {angle=} {some_vertex=}")
-            vertexKey = AnimationNode.VertexKey(time, flags, some_vertex)
-            rotation_keys.append(AnimationNode.RotationKey(vertexKey, angle))
+            logger.debug(f"{flags=} {time=} {x=} {y=} {z=} {w=}")
+            rotation_keys.append(AnimationNode.RotationKey(time, flags, (x, y, z, w)))
 
         num_scale_keys = reader.read_u16()
         logger.debug(f"{num_scale_keys=}")
