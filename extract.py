@@ -11,6 +11,7 @@ from multiprocessing import Pool
 from tkinter import filedialog
 from typing import Any, BinaryIO, Union
 
+from lib.animation import AnimationNode
 from lib.flc import FLC
 from lib.iso import ISO9660
 from lib.si import SI
@@ -64,85 +65,92 @@ def write_png(width: int, height: int, data: bytes, color: ColorSpace, stream: B
     write_chunk(b"IEND", b"")
 
 
-def write_gltf2_mesh(mesh: WDB.Mesh, mesh_name: str, texture: WDB.Gif | None, filename: str) -> None:
-    _write_gltf2([(mesh, texture)], mesh_name, filename, True)
-
-
-def write_gltf2_lod(wdb: WDB, lod: WDB.Lod, lod_name: str, filename: str) -> None:
-    meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]] = []
-    for mesh in lod.meshes:
-        if mesh.uvs:
-            texture = wdb.texture_by_name(mesh.texture_name)
-        else:
-            texture = None
-        meshes_textures.append((mesh, texture))
-    if meshes_textures:
-        _write_gltf2(meshes_textures, lod_name, filename, False)
-
-
-def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name: str, filename: str, mesh_export: bool) -> None:
-    def extend_gltf_chunk(type: bytes, content: bytes) -> bytes:
-        result = bytearray()
-        result.extend(struct.pack("<I4s", len(content), type))
-        result.extend(content)
-        return bytes(result)
-
-    assert not mesh_export or len(meshes_textures) == 1
-
-    meshes: list[WDB.Mesh]
-    textures: list[(WDB.Gif | None)]
-    meshes, textures = zip(*meshes_textures)
-
+class GLBWriter:
     USHORT = 5123
     FLOAT = 5126
     ARRAY_BUFFER = 34962
     ELEMENT_ARRAY_BUFFER = ARRAY_BUFFER + 1
 
-    bin_chunk_data = bytearray()
-    buffer_views: list[dict] = []
-    accessors: list[dict[str, Any]] = []
+    def __init__(self) -> None:
+        self._bin_chunk_data = bytearray()
+        self._buffer_views: list[dict] = []
+        self._accessors: list[dict[str, Any]] = []
 
-    def append_bin_chunk(data: bytes, target: int | None) -> int:
-        buffer_view_offset = len(bin_chunk_data)
-        bin_chunk_data.extend(data)
-        length = len(bin_chunk_data) - buffer_view_offset
-        while len(bin_chunk_data) % 4:
-            bin_chunk_data.append(0)
-        buffer_view_index = len(buffer_views)
+        self._json_textures: list[dict] = []
+        self._json_images: list[dict] = []
+        self._json_meshes: list[dict] = []
+        self._json_materials: list[dict] = []
+
+        self._textures: list[tuple[int, WDB.Gif]] = []
+
+        self._nodes: list[dict[str, Any]] = []
+
+    @staticmethod
+    def _extend_gltf_chunk(type: bytes, content: bytes) -> bytes:
+        result = bytearray()
+        result.extend(struct.pack("<I4s", len(content), type))
+        result.extend(content)
+        return bytes(result)
+
+    def add_node(self, parent_children: (list[int] | None) = None) -> dict[str, Any]:
+        if parent_children is not None:
+            if not self._nodes:
+                raise Exception("Parent defined for first node")
+            parent_children.append(len(self._nodes))
+        elif self._nodes:
+            raise Exception("No parent defined for further nodes")
+
+        node: dict[str, Any] = {}
+        self._nodes.append(node)
+        return node
+
+    def add_parent(self, name: str, parent_children: (list[int] | None) = None) -> dict[str, Any]:
+        node = self.add_node(parent_children)
+        children: list[int] = []
+        node['name'] = name
+        node['children'] = children
+        return node
+
+    def _append_bin_chunk(self, data: bytes, target: int | None) -> int:
+        buffer_view_offset = len(self._bin_chunk_data)
+        self._bin_chunk_data.extend(data)
+        length = len(self._bin_chunk_data) - buffer_view_offset
+        while len(self._bin_chunk_data) % 4:
+            self._bin_chunk_data.append(0)
+        buffer_view_index = len(self._buffer_views)
         buffer_view = {"buffer": 0, "byteOffset": buffer_view_offset, "byteLength": length}
         if target is not None:
             buffer_view["target"] = target
-        buffer_views.append(buffer_view)
+        self._buffer_views.append(buffer_view)
         return buffer_view_index
 
-    def extend_bin_chunk(fmt: str, data: list, target: int | None, componentType: int, type: str) -> int:
+    def _extend_bin_chunk(self, fmt: str, data: list, target: int | None, componentType: int, type: str) -> int:
         chunk_data = bytearray()
         for entry in data:
             if not isinstance(entry, tuple):
                 entry = (entry,)
             chunk_data.extend(struct.pack(fmt, *entry))
-        buffer_view_index = append_bin_chunk(chunk_data, target)
-        accessors.append({"bufferView": buffer_view_index, "componentType": componentType, "count": len(data), "type": type})
+        buffer_view_index = self._append_bin_chunk(chunk_data, target)
+        self._accessors.append({"bufferView": buffer_view_index, "componentType": componentType, "count": len(data), "type": type})
         return buffer_view_index
 
-    json_textures: list[dict] = []
-    json_images: list[dict] = []
-    json_meshes: list[dict] = []
-    json_materials: list[dict] = []
-    for mesh_index, mesh in enumerate(meshes):
-        vertex_index = extend_bin_chunk("<fff", mesh.vertices, ARRAY_BUFFER, FLOAT, "VEC3")
+    def add_mesh(self, mesh: WDB.Mesh, texture: (WDB.Gif | None), name: str, children: (list[int] | None)):
+        mesh_node = self.add_node(children)
+        mesh_node['mesh'] = len(self._json_meshes)
+
+        vertex_index = self._extend_bin_chunk("<fff", mesh.vertices, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC3")
         min_vertex = [min(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
         max_vertex = [max(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
-        accessors[-1].update(
+        self._accessors[-1].update(
             {
                 "min": min_vertex,
                 "max": max_vertex,
             }
         )
-        normal_index = extend_bin_chunk("<fff", mesh.normals, ARRAY_BUFFER, FLOAT, "VEC3")
-        index_index = extend_bin_chunk("<H", mesh.indices, ELEMENT_ARRAY_BUFFER, USHORT, "SCALAR")
+        normal_index = self._extend_bin_chunk("<fff", mesh.normals, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC3")
+        index_index = self._extend_bin_chunk("<H", mesh.indices, GLBWriter.ELEMENT_ARRAY_BUFFER, GLBWriter.USHORT, "SCALAR")
 
-        json_mesh_data = {
+        json_mesh_data: dict[str, Any] = {
             "primitives": [
                 {
                     "attributes": {
@@ -150,68 +158,149 @@ def _write_gltf2(meshes_textures: list[tuple[WDB.Mesh, (WDB.Gif | None)]], name:
                         "NORMAL": normal_index,
                     },
                     "indices": index_index,
-                    "material": len(json_materials),
+                    "material": len(self._json_materials),
                 }
             ],
-            "name": name if mesh_export else f"{name}_M{mesh_index}",
+            "name": name,
         }
         json_material = {"pbrMetallicRoughness": {"baseColorFactor": [mesh.color.red / 255, mesh.color.green / 255, mesh.color.blue / 255, 1 - mesh.color.alpha]}}
-        json_meshes.append(json_mesh_data)
-        json_materials.append(json_material)
+        self._json_meshes.append(json_mesh_data)
+        self._json_materials.append(json_material)
         if mesh.uvs:
-            uv_index = extend_bin_chunk("<ff", mesh.uvs, ARRAY_BUFFER, FLOAT, "VEC2")
-            json_meshes[mesh_index]["primitives"][0]["attributes"]["TEXCOORD_0"] = uv_index
+            uv_index = self._extend_bin_chunk("<ff", mesh.uvs, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC2")
+            json_mesh_data["primitives"][0]["attributes"]["TEXCOORD_0"] = uv_index
         else:
             assert not mesh.texture_name
 
-    for mesh_index, texture in enumerate(textures):
         if texture:
+            mesh_index = len(self._json_meshes) - 1
+            self._textures.append((mesh_index, texture))
+
+    def _write_textures(self):
+        for mesh_index, texture in self._textures:
             with io.BytesIO() as texture_file:
                 write_png(texture.width, texture.height, texture.image, ColorSpace.RGB, texture_file)
                 texture_data = texture_file.getvalue()
-            texture_index = append_bin_chunk(texture_data, None)
-            json_materials[mesh_index]["pbrMetallicRoughness"] = {"baseColorTexture": {"index": len(json_textures)}}
-            json_textures.append({"source": len(json_images)})
-            json_images.append({"mimeType": "image/png", "bufferView": texture_index})
+            texture_index = self._append_bin_chunk(texture_data, None)
+            self._json_materials[mesh_index]["pbrMetallicRoughness"] = {"baseColorTexture": {"index": len(self._json_textures)}}
+            self._json_textures.append({"source": len(self._json_images)})
+            self._json_images.append({"mimeType": "image/png", "bufferView": texture_index})
 
-    nodes: list[dict[str, Any]] = []
-    if not mesh_export:
-        nodes.append(
-            {
-                "name": name,
-                "children": list(range(1, len(json_meshes) + 1)),
-            }
-        )
-    nodes.extend({"mesh": index} for index in range(len(json_meshes)))
+    def build(self) -> bytearray:
+        """Builds the glb file and returns the contents. Important: Adding meshes after calling this is not supported."""
+        self._write_textures()
+        self._textures.clear()
 
-    json_data = {
-        "asset": {"version": "2.0"},
-        "buffers": [{"byteLength": len(bin_chunk_data)}],
-        "bufferViews": buffer_views,
-        "accessors": accessors,
-        "meshes": json_meshes,
-        "materials": json_materials,
-        "nodes": nodes,
-        "scenes": [{"nodes": [0]}],
-        "scene": 0,
-    }
+        json_data = {
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": len(self._bin_chunk_data)}],
+            "bufferViews": self._buffer_views,
+            "accessors": self._accessors,
+            "meshes": self._json_meshes,
+            "materials": self._json_materials,
+            "nodes": self._nodes,
+            "scenes": [{"nodes": [0]}],
+            "scene": 0,
+        }
 
-    if json_images:
-        json_data["images"] = json_images
-    if json_textures:
-        json_data["textures"] = json_textures
+        if self._json_images:
+            json_data["images"] = self._json_images
+        if self._json_textures:
+            json_data["textures"] = self._json_textures
 
-    json_chunk_data = bytearray(json.dumps(json_data).encode("utf8"))
-    while len(json_chunk_data) % 4:
-        json_chunk_data.extend(b" ")
+        json_chunk_data = bytearray(json.dumps(json_data).encode("utf8"))
+        while len(json_chunk_data) % 4:
+            json_chunk_data.extend(b" ")
 
-    contents = bytearray()
-    contents.extend(extend_gltf_chunk(b"JSON", json_chunk_data))
-    contents.extend(extend_gltf_chunk(b"BIN\0", bin_chunk_data))
+        contents = bytearray()
+        contents.extend(GLBWriter._extend_gltf_chunk(b"JSON", json_chunk_data))
+        contents.extend(GLBWriter._extend_gltf_chunk(b"BIN\0", self._bin_chunk_data))
+        return contents
 
-    with open(filename, "wb") as file:
-        file.write(struct.pack("<4sII", b"glTF", 2, 4 * 3 + len(contents)))
-        file.write(contents)
+    def write(self, filename: str) -> None:
+        """Writes the glb file. Important: Adding meshes after calling this is not supported."""
+        contents = self.build()
+        with open(filename, "wb") as file:
+            file.write(struct.pack("<4sII", b"glTF", 2, 4 * 3 + len(contents)))
+            file.write(contents)
+
+
+def write_gltf2_mesh(mesh: WDB.Mesh, texture: (WDB.Gif | None), name: str, filename: str) -> None:
+    writer = GLBWriter()
+    writer.add_mesh(mesh, texture, name, None)
+    writer.write(filename)
+
+
+def write_gltf2_lod(wdb: WDB, lod: WDB.Lod, lod_name: str, filename: str) -> None:
+    if lod.meshes:
+        writer = GLBWriter()
+        root = writer.add_parent(lod_name)
+        children: list[int] = root["children"]
+        for mesh_index, mesh in enumerate(lod.meshes):
+            if mesh.uvs:
+                texture = wdb.texture_by_name(mesh.texture_name)
+            else:
+                texture = None
+            writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}", children)
+        writer.write(filename)
+
+
+def write_gltf2_model(wdb: WDB, model: WDB.Model, filename: str, all_lods: bool) -> None:
+    writer = GLBWriter()
+
+    def add_lod(lod_index: int, lod: WDB.Lod, name: str, children: list[int]):
+        lod_name = f"{name}_L{lod_index}"
+        lod_node = writer.add_parent(lod_name, children)
+        for mesh_index, mesh in enumerate(lod.meshes):
+            if mesh.uvs:
+                texture = wdb.texture_by_name(mesh.texture_name)
+            else:
+                texture = None
+            writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}", lod_node["children"])
+
+    def add_roi(roi: WDB.Roi, animation: (AnimationNode | None), parent_node: dict[str, Any]) -> None:
+        children: list[int] = parent_node["children"]
+
+        transformation: dict[str, Any] = {}
+        if animation:
+            if animation.translation_keys:
+                if len(animation.translation_keys) > 1:
+                    logger.warning(f"Found {len(animation.translation_keys)} translations for {roi.name}")
+                if animation.translation_keys[0].time != 0:
+                    logger.warning(f"First translation key for {roi.name} is not at time 0")
+                else:
+                    # TODO: What to do with flags
+                    transformation["translation"] = animation.translation_keys[0].vertex
+            if animation.rotation_keys:
+                if len(animation.rotation_keys) > 1:
+                    logger.warning(f"Found {len(animation.rotation_keys)} rotations for {roi.name}")
+                if animation.rotation_keys[0].time != 0:
+                    logger.warning(f"First rotation key for {roi.name} is not at time 0")
+                else:
+                    # TODO: What to do with flags and time
+                    transformation["rotation"] = animation.rotation_keys[0].quaternion
+        parent_node.update(transformation)
+
+        if all_lods:
+            for lod_index, lod in enumerate(roi.lods):
+                add_lod(lod_index, lod, roi.name, children)
+        elif roi.lods:
+            add_lod(len(roi.lods) - 1, roi.lods[-1], roi.name, children)
+
+        for child in roi.children:
+            child_node = writer.add_parent(child.name, children)
+            if animation:
+                child_animation = [x for x in animation.children if x.name.lower() == child.name.lower()]
+                if len(child_animation) > 1:
+                    logger.warning(f"Found {len(child_animation)} animations for {child.name}, using first")
+            else:
+                child_animation = []
+            add_roi(child, child_animation[0] if child_animation else None, child_node)
+
+    root = writer.add_parent(model.roi.name)
+    add_roi(model.roi, model.animation, root)
+
+    writer.write(filename)
 
 
 def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, prefix: str) -> int:
@@ -227,7 +316,7 @@ def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, prefix: str) -> int:
             assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
             mesh_name = f"{lod_name}_M{mesh_index}"
             os.makedirs(f"extract/WORLD.WDB/{roi.name}", exist_ok=True)
-            write_gltf2_mesh(mesh, mesh_name, texture, f"extract/WORLD.WDB/{roi.name}/{mesh_name}.glb")
+            write_gltf2_mesh(mesh, texture, mesh_name, f"extract/WORLD.WDB/{roi.name}/{mesh_name}.glb")
             result += 1
         os.makedirs(f"extract/WORLD.WDB/{roi.name}", exist_ok=True)
         write_gltf2_lod(wdb, lod, lod_name, f"extract/WORLD.WDB/{roi.name}/{lod_name}.glb")
@@ -238,7 +327,13 @@ def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, prefix: str) -> int:
 
 
 def export_wdb_model(wdb: WDB, model: WDB.Model) -> int:
-    return _export_wdb_roi(wdb, model.roi, "")
+    file_count = 0
+    file_count += _export_wdb_roi(wdb, model.roi, "")
+    write_gltf2_model(wdb, model, f"extract/WORLD.WDB/{model.roi.name}/model.glb", False)
+    file_count += 1
+    write_gltf2_model(wdb, model, f"extract/WORLD.WDB/{model.roi.name}/all_lods.glb", True)
+    file_count += 1
+    return file_count
 
 
 def write_bitmap(filename: str, obj: SI.Object) -> None:
