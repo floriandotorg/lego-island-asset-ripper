@@ -111,7 +111,7 @@ class GLBWriter:
         node["children"] = children
         return node
 
-    def _append_bin_chunk(self, data: bytes, target: int | None) -> int:
+    def _append_buffer_view(self, data: bytes, target: int | None) -> int:
         buffer_view_offset = len(self._bin_chunk_data)
         self._bin_chunk_data.extend(data)
         length = len(self._bin_chunk_data) - buffer_view_offset
@@ -124,21 +124,22 @@ class GLBWriter:
         self._buffer_views.append(buffer_view)
         return buffer_view_index
 
-    def _extend_bin_chunk(self, fmt: str, data: list, target: int | None, componentType: int, type: str) -> int:
+    def _append_accessor(self, fmt: str, data: list, target: int | None, componentType: int, type: str) -> int:
         chunk_data = bytearray()
         for entry in data:
             if not isinstance(entry, tuple):
                 entry = (entry,)
             chunk_data.extend(struct.pack(fmt, *entry))
-        buffer_view_index = self._append_bin_chunk(chunk_data, target)
+        buffer_view_index = self._append_buffer_view(chunk_data, target)
+        accessor_index = len(self._accessors)
         self._accessors.append({"bufferView": buffer_view_index, "componentType": componentType, "count": len(data), "type": type})
-        return buffer_view_index
+        return accessor_index
 
     def add_mesh(self, mesh: WDB.Mesh, texture: (WDB.Gif | None), name: str, children: (list[int] | None)):
         mesh_node = self.add_node(children)
         mesh_node["mesh"] = len(self._json_meshes)
 
-        vertex_index = self._extend_bin_chunk("<fff", mesh.vertices, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC3")
+        vertex_index = self._append_accessor("<fff", mesh.vertices, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC3")
         min_vertex = [min(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
         max_vertex = [max(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
         self._accessors[-1].update(
@@ -147,8 +148,8 @@ class GLBWriter:
                 "max": max_vertex,
             }
         )
-        normal_index = self._extend_bin_chunk("<fff", mesh.normals, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC3")
-        index_index = self._extend_bin_chunk("<H", mesh.indices, GLBWriter.ELEMENT_ARRAY_BUFFER, GLBWriter.USHORT, "SCALAR")
+        normal_index = self._append_accessor("<fff", mesh.normals, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC3")
+        index_index = self._append_accessor("<H", mesh.indices, GLBWriter.ELEMENT_ARRAY_BUFFER, GLBWriter.USHORT, "SCALAR")
 
         json_mesh_data: dict[str, Any] = {
             "primitives": [
@@ -167,30 +168,23 @@ class GLBWriter:
         self._json_meshes.append(json_mesh_data)
         self._json_materials.append(json_material)
         if mesh.uvs:
-            uv_index = self._extend_bin_chunk("<ff", mesh.uvs, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC2")
+            uv_index = self._append_accessor("<ff", mesh.uvs, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC2")
             json_mesh_data["primitives"][0]["attributes"]["TEXCOORD_0"] = uv_index
         else:
             assert not mesh.texture_name
 
         if texture:
             mesh_index = len(self._json_meshes) - 1
-            self._textures.append((mesh_index, texture))
-
-    def _write_textures(self):
-        for mesh_index, texture in self._textures:
             with io.BytesIO() as texture_file:
                 write_png(texture.width, texture.height, texture.image, ColorSpace.RGB, texture_file)
                 texture_data = texture_file.getvalue()
-            texture_index = self._append_bin_chunk(texture_data, None)
+            texture_index = self._append_buffer_view(texture_data, None)
             self._json_materials[mesh_index]["pbrMetallicRoughness"] = {"baseColorTexture": {"index": len(self._json_textures)}}
             self._json_textures.append({"source": len(self._json_images)})
             self._json_images.append({"mimeType": "image/png", "bufferView": texture_index})
 
     def build(self) -> bytearray:
-        """Builds the glb file and returns the contents. Important: Adding meshes after calling this is not supported."""
-        self._write_textures()
-        self._textures.clear()
-
+        """Builds the glb file and returns the contents."""
         json_data = {
             "asset": {"version": "2.0"},
             "buffers": [{"byteLength": len(self._bin_chunk_data)}],
