@@ -7,5 +7,14 @@
 		"statusBarItem.remoteForeground": "#e7e7e7"
 	},
 	"peacock.color": "#646464",
-	"cSpell.words": ["gltf", "Gouraud", "IDAT", "IEND", "ihdr", "IHDR", "lods"]
+	"cSpell.words": [
+		"gltf",
+		"Gouraud",
+		"IDAT",
+		"IEND",
+		"ihdr",
+		"IHDR",
+		"lods",
+		"rois"
+	]
 }

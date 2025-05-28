@@ -4,7 +4,7 @@ import struct
 from dataclasses import dataclass
 from enum import IntEnum
 from itertools import zip_longest
-from typing import cast
+from typing import Optional, cast
 
 from lib.animation import AnimationNode
 
@@ -33,7 +33,7 @@ class WDB:
 
     @dataclass
     class Model:
-        roi: 'WDB.Roi'
+        roi: "WDB.Roi"
         animation: AnimationNode
 
     @dataclass
@@ -57,18 +57,29 @@ class WDB:
         texture_name: str
         material_name: str
 
+    @dataclass
+    class Part:
+        name: str
+        lods: list["WDB.Lod"]
+
     _images: list[Gif] = []
-    _textures: list[Gif] = []
+    _images2: list[Gif] = []
+    _part_textures: list[Gif] = []
     _model_textures: list[Gif] = []
     _models: list[Model] = []
+    _parts: list[Part] = []
 
     @property
     def images(self) -> list[Gif]:
         return self._images
 
     @property
-    def textures(self) -> list[Gif]:
-        return self._textures
+    def images2(self) -> list[Gif]:
+        return self._images2
+
+    @property
+    def part_textures(self) -> list[Gif]:
+        return self._part_textures
 
     @property
     def model_textures(self) -> list[Gif]:
@@ -78,8 +89,18 @@ class WDB:
     def models(self) -> list[Model]:
         return self._models
 
-    def texture_by_name(self, texture_name: str) -> Gif:
+    @property
+    def parts(self) -> list[Part]:
+        return self._parts
+
+    def model_texture_by_name(self, texture_name: str) -> Gif:
         for texture in self._model_textures:
+            if texture.title == texture_name:
+                return texture
+        raise KeyError()
+
+    def part_texture_by_name(self, texture_name: str) -> Gif:
+        for texture in self._part_textures:
             if texture.title == texture_name:
                 return texture
         raise KeyError()
@@ -119,10 +140,10 @@ class WDB:
             vertices.append(self._read_vertex())
         return vertices
 
-    def _read_lod(self) -> "WDB.Lod":
+    def _read_lod(self) -> Optional["WDB.Lod"]:
         unknown8 = struct.unpack("<I", self._file.read(4))[0]
         if unknown8 & 0xFFFFFF04:
-            raise Exception(f"{unknown8=:08x}")
+            return None
 
         num_meshes = struct.unpack("<I", self._file.read(4))[0]
         if not num_meshes:
@@ -222,7 +243,7 @@ class WDB:
             logger.debug(f"{num_lods=}")
             if num_lods != 0:
                 end_component_offset = struct.unpack("<I", self._file.read(4))[0]
-                lods = [self._read_lod() for _ in range(num_lods)]
+                lods = [lod for lod in (self._read_lod() for _ in range(num_lods)) if lod is not None]
                 logger.info(f"Loaded {len(lods)} for {path}")
                 self._file.seek(offset + end_component_offset)
 
@@ -275,16 +296,53 @@ class WDB:
 
                 models_offsets.append(offset)
 
-        gif_chunk_size, num_frames = struct.unpack("<II", self._file.read(8))
-        logger.debug(f"{gif_chunk_size=} {num_frames=}")
+        gif_chunk_size, num_gifs = struct.unpack("<II", self._file.read(8))
+        logger.debug(f"{gif_chunk_size=} {num_gifs=}")
 
-        for _ in range(num_frames):
+        for _ in range(num_gifs):
             self._images.append(self._read_gif())
+
+        model_chunk_size = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{model_chunk_size=}")
+
+        offset = self._file.tell()
+
+        bin_size_offset, num_bins = struct.unpack("<II", self._file.read(8))
+        logger.debug(f"{bin_size_offset=} {num_bins=}")
+
+        for _ in range(num_bins):
+            bin_name = self._read_str()
+            logger.debug(f"{bin_name=}")
+            num_models, end_bin_offset = struct.unpack("<II", self._file.read(8))
+            logger.debug(f"{num_models=} {end_bin_offset=}")
+            self._file.seek(offset + end_bin_offset, io.SEEK_SET)
+
+        num_gifs = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{num_gifs=}")
+
+        for _ in range(num_gifs):
+            self._images2.append(self._read_gif())
 
         for offset in parts_offsets:
             self._file.seek(offset, io.SEEK_SET)
             texture_info_offset = struct.unpack("<I", self._file.read(4))[0]
             logger.debug(f"{texture_info_offset=:}")
+
+            num_rois = struct.unpack("<I", self._file.read(4))[0]
+            for _ in range(num_rois):
+                roi_name = self._read_str()
+                logger.debug(f"{roi_name=}")
+
+                num_lods, roi_info_offset = struct.unpack("<II", self._file.read(8))
+                logger.debug(f"{num_lods=} {roi_info_offset=}")
+
+                lods = []
+                for _ in range(num_lods):
+                    lod = self._read_lod()
+                    if lod is not None:
+                        lods.append(lod)
+
+                self._parts.append(WDB.Part(roi_name, lods))
 
             self._file.seek(offset + texture_info_offset, io.SEEK_SET)
             num_textures = struct.unpack("<I", self._file.read(4))[0]
@@ -292,10 +350,10 @@ class WDB:
 
             for _ in range(num_textures):
                 texture = self._read_gif()
-                self._textures.append(texture)
+                self._part_textures.append(texture)
 
                 if texture.title.startswith("^"):
-                    self._textures.append(self._read_gif(title=texture.title[1:]))
+                    self._part_textures.append(self._read_gif(title=texture.title[1:]))
 
         scanned_offsets = set()
         scanned_model_names: set[str] = set()
