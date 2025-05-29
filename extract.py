@@ -71,6 +71,30 @@ class GLBWriter:
     ARRAY_BUFFER = 34962
     ELEMENT_ARRAY_BUFFER = ARRAY_BUFFER + 1
 
+    class Node:
+        def __init__(self) -> None:
+            self._data: dict[str, Any] = {}
+
+        @property
+        def data(self) -> dict[str, Any]:
+            return self._data
+
+    class Parent(Node):
+        def __init__(self, name: str) -> None:
+            super().__init__()
+            self._data["name"] = name
+            self._children: list[GLBWriter.Node] = []
+
+        @property
+        def children(self) -> list["GLBWriter.Node"]:
+            return self._children
+
+        def add_child(self, node: "GLBWriter.Node"):
+            self._children.append(node)
+
+        def __bool__(self) -> bool:
+            return bool(self._children)
+
     def __init__(self) -> None:
         self._bin_chunk_data = bytearray()
         self._buffer_views: list[dict] = []
@@ -83,7 +107,15 @@ class GLBWriter:
 
         self._textures: list[tuple[int, WDB.Gif]] = []
 
-        self._nodes: list[dict[str, Any]] = []
+        self._root_node: GLBWriter.Node | None = None
+
+    @property
+    def root_node(self) -> "GLBWriter.Node | None":
+        return self._root_node
+
+    @root_node.setter
+    def root_node(self, node: "GLBWriter.Node") -> None:
+        self._root_node = node
 
     @staticmethod
     def _extend_gltf_chunk(type: bytes, content: bytes) -> bytes:
@@ -91,25 +123,6 @@ class GLBWriter:
         result.extend(struct.pack("<I4s", len(content), type))
         result.extend(content)
         return bytes(result)
-
-    def add_node(self, parent_children: (list[int] | None) = None) -> dict[str, Any]:
-        if parent_children is not None:
-            if not self._nodes:
-                raise Exception("Parent defined for first node")
-            parent_children.append(len(self._nodes))
-        elif self._nodes:
-            raise Exception("No parent defined for further nodes")
-
-        node: dict[str, Any] = {}
-        self._nodes.append(node)
-        return node
-
-    def add_parent(self, name: str, parent_children: (list[int] | None) = None) -> dict[str, Any]:
-        node = self.add_node(parent_children)
-        children: list[int] = []
-        node["name"] = name
-        node["children"] = children
-        return node
 
     def _append_buffer_view(self, data: bytes, target: int | None) -> int:
         buffer_view_offset = len(self._bin_chunk_data)
@@ -135,9 +148,8 @@ class GLBWriter:
         self._accessors.append({"bufferView": buffer_view_index, "componentType": componentType, "count": len(data), "type": type})
         return accessor_index
 
-    def add_mesh(self, mesh: WDB.Mesh, texture: (WDB.Gif | None), name: str, children: (list[int] | None)):
-        mesh_node = self.add_node(children)
-        mesh_node["mesh"] = len(self._json_meshes)
+    def add_mesh(self, mesh: WDB.Mesh, texture: (WDB.Gif | None), name: str) -> "GLBWriter.Node":
+        mesh_index = len(self._json_meshes)
 
         vertex_index = self._append_accessor("<fff", mesh.vertices, GLBWriter.ARRAY_BUFFER, GLBWriter.FLOAT, "VEC3")
         min_vertex = [min(vertex[axis] for vertex in mesh.vertices) for axis in range(0, 3)]
@@ -174,7 +186,6 @@ class GLBWriter:
             assert not mesh.texture_name
 
         if texture:
-            mesh_index = len(self._json_meshes) - 1
             with io.BytesIO() as texture_file:
                 write_png(texture.width, texture.height, texture.image, ColorSpace.RGB, texture_file)
                 texture_data = texture_file.getvalue()
@@ -183,8 +194,29 @@ class GLBWriter:
             self._json_textures.append({"source": len(self._json_images)})
             self._json_images.append({"mimeType": "image/png", "bufferView": texture_index})
 
+        mesh_node = GLBWriter.Node()
+        mesh_node.data["mesh"] = mesh_index
+        return mesh_node
+
     def build(self) -> bytearray:
         """Builds the glb file and returns the contents."""
+        if self._root_node is None:
+            raise Exception("No node defined")
+
+        nodes: list[dict[str, Any]] = []
+
+        def append_node(node: GLBWriter.Node):
+            node_data = dict(node.data)
+            nodes.append(node_data)
+            if isinstance(node, GLBWriter.Parent):
+                children_indices: list[int] = []
+                node_data["children"] = children_indices
+                for child in node.children:
+                    children_indices.append(len(nodes))
+                    append_node(child)
+
+        append_node(self._root_node)
+
         json_data = {
             "asset": {"version": "2.0"},
             "buffers": [{"byteLength": len(self._bin_chunk_data)}],
@@ -192,7 +224,7 @@ class GLBWriter:
             "accessors": self._accessors,
             "meshes": self._json_meshes,
             "materials": self._json_materials,
-            "nodes": self._nodes,
+            "nodes": nodes,
             "scenes": [{"nodes": [0]}],
             "scene": 0,
         }
@@ -221,39 +253,43 @@ class GLBWriter:
 
 def write_gltf2_mesh(mesh: WDB.Mesh, texture: (WDB.Gif | None), name: str, filename: str) -> None:
     writer = GLBWriter()
-    writer.add_mesh(mesh, texture, name, None)
+    writer.root_node = writer.add_mesh(mesh, texture, name)
     writer.write(filename)
 
 
 def write_gltf2_lod(lod: WDB.Lod, lod_name: str, filename: str, texture_by_name: Callable[[str], WDB.Gif]) -> None:
     if lod.meshes:
         writer = GLBWriter()
-        root = writer.add_parent(lod_name)
-        children: list[int] = root["children"]
+        root = GLBWriter.Parent(lod_name)
         for mesh_index, mesh in enumerate(lod.meshes):
             if mesh.uvs:
                 texture = texture_by_name(mesh.texture_name)
             else:
                 texture = None
-            writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}", children)
+            mesh_node = writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}")
+            root.add_child(mesh_node)
+        writer.root_node = root
         writer.write(filename)
 
 
 def write_gltf2_model(wdb: WDB, model: WDB.Model, filename: str, all_lods: bool) -> None:
     writer = GLBWriter()
 
-    def add_lod(lod_index: int, lod: WDB.Lod, name: str, children: list[int]):
+    def add_lod(lod_index: int, lod: WDB.Lod, name: str) -> GLBWriter.Parent | None:
+        if not lod.meshes:
+            return None
         lod_name = f"{name}_L{lod_index}"
-        lod_node = writer.add_parent(lod_name, children)
+        lod_node = GLBWriter.Parent(lod_name)
         for mesh_index, mesh in enumerate(lod.meshes):
             if mesh.uvs:
                 texture = wdb.model_texture_by_name(mesh.texture_name)
             else:
                 texture = None
-            writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}", lod_node["children"])
+            lod_node.add_child(writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}"))
+        return lod_node
 
-    def add_roi(roi: WDB.Roi, animation: (AnimationNode | None), parent_node: dict[str, Any]) -> None:
-        children: list[int] = parent_node["children"]
+    def add_roi(roi: WDB.Roi, animation: (AnimationNode | None)) -> GLBWriter.Parent | None:
+        roi_node = GLBWriter.Parent(roi.name)
 
         transformation: dict[str, Any] = {}
         if animation:
@@ -273,26 +309,36 @@ def write_gltf2_model(wdb: WDB, model: WDB.Model, filename: str, all_lods: bool)
                 else:
                     # TODO: What to do with flags and time
                     transformation["rotation"] = animation.rotation_keys[0].quaternion
-        parent_node.update(transformation)
+        roi_node.data.update(transformation)
 
         if all_lods:
             for lod_index, lod in enumerate(roi.lods):
-                add_lod(lod_index, lod, roi.name, children)
+                lod_node = add_lod(lod_index, lod, roi.name)
+                if lod_node:
+                    roi_node.add_child(lod_node)
         elif roi.lods:
-            add_lod(len(roi.lods) - 1, roi.lods[-1], roi.name, children)
+            lod_node = add_lod(len(roi.lods) - 1, roi.lods[-1], roi.name)
+            if lod_node:
+                roi_node.add_child(lod_node)
 
         for child in roi.children:
-            child_node = writer.add_parent(child.name, children)
             if animation:
                 child_animation = [x for x in animation.children if x.name.lower() == child.name.lower()]
                 if len(child_animation) > 1:
                     logger.warning(f"Found {len(child_animation)} animations for {child.name}, using first")
             else:
                 child_animation = []
-            add_roi(child, child_animation[0] if child_animation else None, child_node)
+            child_node = add_roi(child, child_animation[0] if child_animation else None)
+            if child_node:
+                roi_node.add_child(child_node)
 
-    root = writer.add_parent(model.roi.name)
-    add_roi(model.roi, model.animation, root)
+        if roi_node:
+            return roi_node
+        return None
+
+    root_node = add_roi(model.roi, model.animation)
+    if root_node:
+        writer.root_node = root_node
 
     writer.write(filename)
 
