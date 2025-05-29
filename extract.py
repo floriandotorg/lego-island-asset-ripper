@@ -19,6 +19,7 @@ from lib.smk import SMK
 from lib.wdb import WDB
 
 logger = logging.getLogger(__name__)
+log_level = logging.INFO
 
 
 class ColorSpace(IntEnum):
@@ -343,7 +344,7 @@ def write_gltf2_model(wdb: WDB, model: WDB.Model, filename: str, all_lods: bool)
     writer.write(filename)
 
 
-def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, root_name: str, prefix: str) -> int:
+def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, root_name: str, prefix: str, path_prefix="extract/WORLD.WDB/models/") -> int:
     prefix = f"{prefix}{roi.name}"
     result = 0
     for lod_index, lod in enumerate(roi.lods):
@@ -355,31 +356,38 @@ def _export_wdb_roi(wdb: WDB, roi: WDB.Roi, root_name: str, prefix: str) -> int:
                 texture = None
             assert (texture is not None) == bool(mesh.uvs), f"{texture=} == {len(mesh.uvs)}; {texture is not None=}; {bool(mesh.uvs)=}"
             mesh_name = f"{lod_name}_M{mesh_index}"
-            write_gltf2_mesh(mesh, texture, mesh_name, f"extract/WORLD.WDB/models/{root_name}/parts/{mesh_name}.glb")
+            write_gltf2_mesh(mesh, texture, mesh_name, f"{path_prefix}/{root_name}/parts/{mesh_name}.glb")
             result += 1
-        write_gltf2_lod(lod, lod_name, f"extract/WORLD.WDB/models/{root_name}/parts/{lod_name}.glb", wdb.model_texture_by_name)
+        write_gltf2_lod(lod, lod_name, f"{path_prefix}/{root_name}/parts/{lod_name}.glb", wdb.model_texture_by_name)
         result += 1
     for child in roi.children:
-        _export_wdb_roi(wdb, child, root_name, f"{prefix}_R")
+        _export_wdb_roi(wdb, child, root_name, f"{prefix}_R", path_prefix)
     return result
 
 
-def export_wdb_model(wdb: WDB, model: WDB.Model) -> int:
+def export_wdb_model(wdb: WDB, model: WDB.Model, path_prefix="extract/WORLD.WDB/models/") -> int:
+    def count_meshes(roi: WDB.Roi) -> int:
+        return sum(len(lod.meshes) for lod in roi.lods) + sum(count_meshes(child) for child in roi.children)
+
+    if count_meshes(model.roi) < 1:
+        logger.warning(f"Model {model.roi.name} has no meshes")
+        return 0
+
     file_count = 0
-    os.makedirs(f"extract/WORLD.WDB/models/{model.roi.name}/parts", exist_ok=True)
-    file_count += _export_wdb_roi(wdb, model.roi, model.roi.name, "")
-    write_gltf2_model(wdb, model, f"extract/WORLD.WDB/models/{model.roi.name}/model.glb", False)
+    os.makedirs(f"{path_prefix}/{model.roi.name}/parts", exist_ok=True)
+    file_count += _export_wdb_roi(wdb, model.roi, model.roi.name, "", path_prefix)
+    write_gltf2_model(wdb, model, f"{path_prefix}/{model.roi.name}/model.glb", False)
     file_count += 1
-    write_gltf2_model(wdb, model, f"extract/WORLD.WDB/models/{model.roi.name}/all_lods.glb", True)
+    write_gltf2_model(wdb, model, f"{path_prefix}/{model.roi.name}/all_lods.glb", True)
     file_count += 1
     return file_count
 
 
-def export_wdb_part(wdb: WDB, part: WDB.Part) -> int:
+def export_wdb_part(wdb: WDB, part: WDB.Part, path="parts") -> int:
     file_count = 0
-    os.makedirs(f"extract/WORLD.WDB/parts/{part.name}", exist_ok=True)
+    os.makedirs(f"extract/WORLD.WDB/{path}/{part.name}", exist_ok=True)
     for lod_index, lod in enumerate(part.lods):
-        write_gltf2_lod(lod, f"{part.name}_L{lod_index}", f"extract/WORLD.WDB/parts/{part.name}/L{lod_index}.glb", wdb.part_texture_by_name)
+        write_gltf2_lod(lod, f"{part.name}_L{lod_index}", f"extract/WORLD.WDB/{path}/{part.name}/L{lod_index}.glb", wdb.part_texture_by_name)
         file_count += 1
     return file_count
 
@@ -592,10 +600,23 @@ def write_smk_avi(video: Union[SMK, FLC], filename: str) -> None:
         file.write(struct.pack("<I", file_size - 8))
 
 
-def write_si(filename: str, obj: SI.Object) -> bool:
+def write_si(filename: str, obj: SI.Object) -> int:
     os.makedirs(f"extract/{filename}", exist_ok=True)
 
     match obj.file_type:
+        case SI.FileType.OBJ:
+            if obj.presenter != "LegoModelPresenter" or not obj.data:
+                return 0
+
+            model_files = 0
+            wdb = WDB(io.BytesIO(obj.data), read_si_model=True)
+            for model in wdb.models:
+                model_files += export_wdb_model(wdb, model, f"extract/{filename}/models")
+            os.makedirs(f"extract/{filename}/models/textures", exist_ok=True)
+            for texture in wdb.model_textures:
+                write_gif(texture, f"extract/{filename}/models/textures/{obj.id}.bmp")
+            return model_files + len(wdb.model_textures)
+
         case SI.FileType.WAV:
 
             def extend_wav_chunk(type: bytes, content: bytes) -> bytes:
@@ -612,9 +633,10 @@ def write_si(filename: str, obj: SI.Object) -> bool:
                 content.extend(extend_wav_chunk(b"fmt ", obj.data[: obj.chunk_sizes[0]]))
                 content.extend(extend_wav_chunk(b"data", obj.data[obj.chunk_sizes[0] :]))
                 file.write(extend_wav_chunk(b"RIFF", content))
-            return True
+            return 1
         case SI.FileType.STL:
             write_bitmap(f"extract/{filename}/{obj.id}.bmp", obj)
+            return 1
         case SI.FileType.FLC:
             mem_file = io.BytesIO()
             write_flc(mem_file, obj)
@@ -628,15 +650,16 @@ def write_si(filename: str, obj: SI.Object) -> bool:
                 write_smk_avi(flc, f"extract/{filename}/{obj.id}.avi")
             except Exception as e:
                 logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
-                return False
-            return True
+                return 1
+            return 3
         case SI.FileType.SMK:
             with open(f"extract/{filename}/{obj.id}.smk", "wb") as file:
                 file.write(obj.data)
             smk = SMK(io.BytesIO(obj.data))
             write_smk_avi(smk, f"extract/{filename}/{obj.id}.avi")
-            return True
-    return False
+            return 2
+        case _:
+            return 0
 
 
 def get_iso_path() -> str:
@@ -680,12 +703,13 @@ class File:
 
 def process_file(file: File) -> int:
     logger.info(f"Extracting {file.name} ..")
-    result = sum(1 if write_si(os.path.basename(file.name), obj) else 0 for obj in file.si.object_list.values())
+    result = sum(write_si(os.path.basename(file.name), obj) for obj in file.si.object_list.values())
     logger.info(f"Extracting {file.name} .. [done]")
     return result
 
 
 def process_files(files: list[File]) -> int:
+    logging.basicConfig(level=log_level)
     return sum(process_file(file) for file in files)
 
 
@@ -701,8 +725,7 @@ def balanced_chunks(data: list[File], n: int) -> list[list[File]]:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-
+    logging.basicConfig(level=log_level)
     os.makedirs("extract", exist_ok=True)
 
     si_files: list[File] = []
@@ -717,7 +740,7 @@ if __name__ == "__main__":
                 mem_file.write(iso.open(file).read())
                 mem_file.seek(0, io.SEEK_SET)
                 if file.endswith(".SI"):
-                    pass  # si_files.append(File(SI(mem_file), file))
+                    si_files.append(File(SI(mem_file), file))
                 elif file.endswith(".WDB"):
                     wdb_files.append(mem_file)
                 else:
@@ -736,20 +759,20 @@ if __name__ == "__main__":
         logger.info("Exporting WDB models ..")
         os.makedirs("extract/WORLD.WDB", exist_ok=True)
         os.makedirs("extract/WORLD.WDB/images", exist_ok=True)
-        os.makedirs("extract/WORLD.WDB/images2", exist_ok=True)
         os.makedirs("extract/WORLD.WDB/part_textures", exist_ok=True)
         os.makedirs("extract/WORLD.WDB/model_textures", exist_ok=True)
         os.makedirs("extract/WORLD.WDB/parts", exist_ok=True)
+        os.makedirs("extract/WORLD.WDB/global_parts", exist_ok=True)
         for wdb_file in wdb_files:
             wdb = WDB(wdb_file)
             for model in wdb.models:
                 exported_files += export_wdb_model(wdb, model)
             for part in wdb.parts:
                 exported_files += export_wdb_part(wdb, part)
+            for part in wdb.global_parts:
+                exported_files += export_wdb_part(wdb, part, "global_parts")
             for image in wdb.images:
                 write_gif(image, f"extract/WORLD.WDB/images/{image.title}.bmp")
-            for image in wdb.images2:
-                write_gif(image, f"extract/WORLD.WDB/images2/{image.title}.bmp")
             for texture in wdb.part_textures:
                 write_gif(texture, f"extract/WORLD.WDB/part_textures/{texture.title}.bmp")
             for model_texture in wdb.model_textures:

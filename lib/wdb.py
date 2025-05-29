@@ -63,19 +63,15 @@ class WDB:
         lods: list["WDB.Lod"]
 
     _images: list[Gif] = []
-    _images2: list[Gif] = []
     _part_textures: list[Gif] = []
     _model_textures: list[Gif] = []
     _models: list[Model] = []
     _parts: list[Part] = []
+    _global_parts: list[Part] = []
 
     @property
     def images(self) -> list[Gif]:
         return self._images
-
-    @property
-    def images2(self) -> list[Gif]:
-        return self._images2
 
     @property
     def part_textures(self) -> list[Gif]:
@@ -92,6 +88,10 @@ class WDB:
     @property
     def parts(self) -> list[Part]:
         return self._parts
+
+    @property
+    def global_parts(self) -> list[Part]:
+        return self._global_parts
 
     def model_texture_by_name(self, texture_name: str) -> Gif:
         for texture in self._model_textures:
@@ -209,7 +209,7 @@ class WDB:
             path += "/"
         path += model_name
 
-        logger.info(f"Reading '{path}'")
+        logger.debug(f"Reading '{path}'")
 
         if model_name in scanned_model_names:
             # TODO: Either this is okay, or determine how we can avoid this
@@ -244,7 +244,7 @@ class WDB:
             if num_lods != 0:
                 end_component_offset = struct.unpack("<I", self._file.read(4))[0]
                 lods = [lod for lod in (self._read_lod() for _ in range(num_lods)) if lod is not None]
-                logger.info(f"Loaded {len(lods)} for {path}")
+                logger.debug(f"Loaded {len(lods)} for {path}")
                 self._file.seek(offset + end_component_offset)
 
         num_rois = struct.unpack("<I", self._file.read(4))[0]
@@ -255,8 +255,94 @@ class WDB:
 
         return WDB.Roi(model_name, lods, children, texture_name)
 
-    def __init__(self, file: io.BufferedIOBase):
+    def _read_part(self, offset: int) -> list["WDB.Part"]:
+        result = []
+
+        texture_info_offset, num_rois = struct.unpack("<II", self._file.read(8))
+        logger.debug(f"{texture_info_offset=:}")
+
+        for _ in range(num_rois):
+            roi_name = self._read_str()
+            logger.debug(f"{roi_name=}")
+
+            num_lods, roi_info_offset = struct.unpack("<II", self._file.read(8))
+            logger.debug(f"{num_lods=} {roi_info_offset=}")
+
+            lods = []
+            for _ in range(num_lods):
+                lod = self._read_lod()
+                if lod is not None:
+                    lods.append(lod)
+
+            result.append(WDB.Part(roi_name, lods))
+
+        self._file.seek(offset + texture_info_offset, io.SEEK_SET)
+        num_textures = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{num_textures=}")
+
+        for _ in range(num_textures):
+            texture = self._read_gif()
+            self._part_textures.append(texture)
+
+            if texture.title.startswith("^"):
+                self._part_textures.append(self._read_gif(title=texture.title[1:]))
+
+        return result
+
+    def _read_model(self) -> None:
+        offset = self._file.tell()
+
+        version = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{version=}")
+
+        if version != 19:
+            raise ValueError(f"Invalid version: {version}")
+
+        texture_info_offset = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{texture_info_offset=}")
+
+        num_rois = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{num_rois=}")
+
+        num_animations = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{num_animations=}")
+
+        for _ in range(num_animations):
+            animation_name = self._read_str()
+            logger.debug(f"{animation_name=}")
+
+            unknown = struct.unpack("<I", self._file.read(4))[0]
+            logger.debug(f"{unknown=}")
+
+            raise NotImplementedError("Animations were apparently never used")
+
+        duration = struct.unpack("<I", self._file.read(4))[0]
+        logger.debug(f"{duration=}")
+
+        animation = AnimationNode.read(self._file)
+
+        scanned_model_names: set[str] = set()
+        roi = self._read_roi(scanned_model_names, offset)
+        self._models.append(WDB.Model(roi, animation))
+
+        self._file.seek(offset + texture_info_offset, io.SEEK_SET)
+        num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
+        logger.debug(f"{num_textures=} {skip_textures=}")
+
+        for _ in range(num_textures):
+            texture = self._read_gif()
+            self._model_textures.append(texture)
+
+            if texture.title.startswith("^"):
+                self._model_textures.append(self._read_gif(title=texture.title[1:]))
+
+    def __init__(self, file: io.BufferedIOBase, read_si_model=False):
         self._file = file
+
+        if read_si_model:
+            self._read_model()
+            return
+
         num_worlds = struct.unpack("<I", self._file.read(4))[0]
         logger.debug(f"{num_worlds=}")
 
@@ -305,129 +391,18 @@ class WDB:
         model_chunk_size = struct.unpack("<I", self._file.read(4))[0]
         logger.debug(f"{model_chunk_size=}")
 
-        offset = self._file.tell()
-
-        bin_size_offset, num_bins = struct.unpack("<II", self._file.read(8))
-        logger.debug(f"{bin_size_offset=} {num_bins=}")
-
-        for _ in range(num_bins):
-            bin_name = self._read_str()
-            logger.debug(f"{bin_name=}")
-            num_models, end_bin_offset = struct.unpack("<II", self._file.read(8))
-            logger.debug(f"{num_models=} {end_bin_offset=}")
-            self._file.seek(offset + end_bin_offset, io.SEEK_SET)
-
-        num_gifs = struct.unpack("<I", self._file.read(4))[0]
-        logger.debug(f"{num_gifs=}")
-
-        for _ in range(num_gifs):
-            self._images2.append(self._read_gif())
+        self._global_parts = self._read_part(self._file.tell())
 
         for offset in parts_offsets:
             self._file.seek(offset, io.SEEK_SET)
-            texture_info_offset = struct.unpack("<I", self._file.read(4))[0]
-            logger.debug(f"{texture_info_offset=:}")
-
-            num_rois = struct.unpack("<I", self._file.read(4))[0]
-            for _ in range(num_rois):
-                roi_name = self._read_str()
-                logger.debug(f"{roi_name=}")
-
-                num_lods, roi_info_offset = struct.unpack("<II", self._file.read(8))
-                logger.debug(f"{num_lods=} {roi_info_offset=}")
-
-                lods = []
-                for _ in range(num_lods):
-                    lod = self._read_lod()
-                    if lod is not None:
-                        lods.append(lod)
-
-                self._parts.append(WDB.Part(roi_name, lods))
-
-            self._file.seek(offset + texture_info_offset, io.SEEK_SET)
-            num_textures = struct.unpack("<I", self._file.read(4))[0]
-            logger.debug(f"{num_textures=}")
-
-            for _ in range(num_textures):
-                texture = self._read_gif()
-                self._part_textures.append(texture)
-
-                if texture.title.startswith("^"):
-                    self._part_textures.append(self._read_gif(title=texture.title[1:]))
+            self._parts.extend(self._read_part(offset))
 
         scanned_offsets = set()
-        scanned_model_names: set[str] = set()
         for offset in models_offsets:
             if offset in scanned_offsets:
-                logger.info(f"Already scanned offset {offset}, skipping")
+                logger.debug(f"Already scanned offset {offset}, skipping")
                 continue
             scanned_offsets.add(offset)
 
             self._file.seek(offset, io.SEEK_SET)
-
-            version = struct.unpack("<I", self._file.read(4))[0]
-            logger.debug(f"{version=}")
-
-            if version != 19:
-                raise ValueError(f"Invalid version: {version}")
-
-            texture_info_offset = struct.unpack("<I", self._file.read(4))[0]
-            logger.debug(f"{texture_info_offset=}")
-
-            num_rois = struct.unpack("<I", self._file.read(4))[0]
-            logger.debug(f"{num_rois=}")
-
-            num_animations = struct.unpack("<I", self._file.read(4))[0]
-            logger.debug(f"{num_animations=}")
-
-            for _ in range(num_animations):
-                animation_name = self._read_str()
-                logger.debug(f"{animation_name=}")
-
-                unknown = struct.unpack("<I", self._file.read(4))[0]
-                logger.debug(f"{unknown=}")
-
-                raise NotImplementedError("Animations were apparently never used")
-
-            duration = struct.unpack("<I", self._file.read(4))[0]
-            logger.debug(f"{duration=}")
-
-            animation = AnimationNode.read(self._file)
-
-            roi = self._read_roi(scanned_model_names, offset)
-            self._models.append(WDB.Model(roi, animation))
-
-            self._file.seek(offset + texture_info_offset, io.SEEK_SET)
-            num_textures, skip_textures = struct.unpack("<II", self._file.read(8))
-            logger.debug(f"{num_textures=} {skip_textures=}")
-
-            for _ in range(num_textures):
-                texture = self._read_gif()
-                self._model_textures.append(texture)
-
-                if texture.title.startswith("^"):
-                    self._model_textures.append(self._read_gif(title=texture.title[1:]))
-
-            # world_name = self._read_str()
-            # logger.debug(f"{world_name=}")
-
-        # für_später = self._file.tell() - 8
-
-        # for _ in range(num_bins):
-        #     name = self._read_str()
-        #     logger.debug(f"{name=}")
-
-        #     num_models, end_bin_offset = struct.unpack("<II", self._file.read(8))
-        #     logger.debug(f"{num_models=} {end_bin_offset=}")
-
-        #     for _ in range(num_models):
-        #         magic, bytes_left_in_subgroup, version = struct.unpack("<III8x", self._file.read(20))
-        #         logger.debug(f"{magic=} {bytes_left_in_subgroup=} {version=}")
-
-        #         if magic != 8:
-        #             raise ValueError(f"Invalid magic number: {magic}")
-
-        #         file_name = self._read_str()
-        #         logger.debug(f"{file_name=}")
-
-        #     self._file.seek(für_später + end_bin_offset, io.SEEK_SET)
+            self._read_model()
