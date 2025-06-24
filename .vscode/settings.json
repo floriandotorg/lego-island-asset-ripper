@@ -8,13 +8,26 @@
 	},
 	"peacock.color": "#646464",
 	"cSpell.words": [
+		"bitrate",
+		"DECOMP",
+		"faststart",
+		"fromarray",
+		"frombuffer",
+		"frombytes",
+		"fvalue",
 		"gltf",
 		"Gouraud",
 		"IDAT",
 		"IEND",
 		"ihdr",
 		"IHDR",
+		"legoomni",
+		"libx",
 		"lods",
-		"rois"
+		"movflags",
+		"muxers",
+		"rois",
+		"tfile",
+		"tvalue"
 	]
 }

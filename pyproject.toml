@@ -8,6 +8,10 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.13"
+pillow = "^11.2.1"
+typed-ffmpeg = "^3.5.1"
+numpy = "^2.3.1"
+python-dotenv = "^1.1.1"
 
 
 [build-system]

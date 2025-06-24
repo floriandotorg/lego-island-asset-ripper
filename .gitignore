@@ -3,6 +3,7 @@
 *.bmp
 *.avi
 extract/
+actions/
 NOTES.md
 test.py
 

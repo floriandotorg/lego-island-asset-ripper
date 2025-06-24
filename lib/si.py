@@ -3,7 +3,7 @@ import logging
 import struct
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +14,18 @@ CHUNK_HEADER_SIZE = 14
 class SI:
     class Type(IntEnum):
         Null = -1
-        Video = 0x03
-        Sound = 0x04
-        World = 0x06
-        Presenter = 0x07
-        Event = 0x08
-        Animation = 0x09
-        Bitmap = 0x0A
-        Object = 0x0B
+        Object = 0
+        Action = 1
+        MediaAction = 2
+        Anim = 3
+        Sound = 4
+        MultiAction = 5
+        SerialAction = 6
+        ParallelAction = 7
+        Event = 8
+        SelectAction = 9
+        Still = 10
+        ObjectAction = 11
 
     class Flags(IntEnum):
         LoopCache = 0x01
@@ -47,6 +51,7 @@ class SI:
         type: "SI.Type"
         presenter: str
         name: str
+        si_file: str
         id: int
         flags: int
         duration: int
@@ -60,9 +65,15 @@ class SI:
         extra_data: str
         data: bytearray = field(default_factory=bytearray)
         chunk_sizes: list[int] = field(default_factory=list)
+        children: list["SI.Object"] = field(default_factory=list)
+        fps: Optional[int] = None
+        num_frames: Optional[int] = None
 
         def open(self) -> io.BytesIO:
             return io.BytesIO(self.data)
+
+        def to_dict(self) -> dict[str, Any]:
+            return {"type": self.type, "presenter": self.presenter, "name": self.name, "siFile": self.si_file, "id": self.id, "flags": self.flags, "duration": self.duration, "loops": self.loops, "location": self.location, "direction": self.direction, "up": self.up, "filename": self.filename, "fileType": self.file_type, "volume": self.volume, "extra": self.extra_data, "fps": self.fps, "numFrames": self.num_frames, "children": [child.to_dict() for child in self.children]}
 
     class Version(IntEnum):
         Version2_1 = 0x00010002
@@ -93,10 +104,11 @@ class SI:
     def _read_uint32(self) -> int:
         return struct.unpack("<I", self._file.read(4))[0]
 
-    def _read_chunk(self) -> None:
+    def _read_chunk(self, parents: list["SI.Object"] = []) -> None:
         pos = self._file.tell()
         magic, size = struct.unpack("<4sI", self._file.read(8))
         end = self._file.tell() + size
+        current: Optional["SI.Object"] = None
 
         logger.debug(f"{pos=:08x}, {magic=}, {size=}")
 
@@ -142,18 +154,22 @@ class SI:
                 filename: Optional[str] = None
                 file_type: Optional[SI.FileType] = None
                 volume: Optional[int] = None
-                if type != SI.Type.Presenter and type != SI.Type.World and type != SI.Type.Animation:
+                if type != SI.Type.ParallelAction and type != SI.Type.SerialAction and type != SI.Type.SelectAction:
                     filename = self._read_null_terminated_string()
                     self._file.seek(12, io.SEEK_CUR)  # unknown 26 - 28
                     file_type = SI.FileType(self._read_uint32())
                     self._file.seek(8, io.SEEK_CUR)  # unknown 29 - 30
-                    if type == SI.FileType.WAV:
+                    if file_type == SI.FileType.WAV:
                         volume = self._read_uint32()
                 (loc_x, loc_y, loc_z) = tuple(map(float, coords[:3]))
                 (dir_x, dir_y, dir_z) = tuple(map(float, coords[3:6]))
                 (up_x, up_y, up_z) = tuple(map(float, coords[6:]))
-                obj = SI.Object(type, presenter, name, id, flags, duration, loops, (loc_x, loc_y, loc_z), (dir_x, dir_y, dir_z), (up_x, up_y, up_z), filename=filename, file_type=file_type, volume=volume, extra_data=extra_data)
+                obj = SI.Object(type, presenter, name, "", id, flags, duration, loops, (loc_x, loc_y, loc_z), (dir_x, dir_y, dir_z), (up_x, up_y, up_z), filename=filename, file_type=file_type, volume=volume, extra_data=extra_data)
                 self._object_list[id] = obj
+                parent = parents[-1] if parents else None
+                if parent:
+                    parent.children.append(obj)
+                current = obj
                 logger.debug(obj)
             case b"MxCh":
                 flags, id, total_size = struct.unpack("<HI4xI", self._file.read(CHUNK_HEADER_SIZE))
@@ -177,7 +193,7 @@ class SI:
                 if offset + HEADER_SIZE > self._buffer_size:
                     self._file.seek(self._buffer_size - offset, io.SEEK_CUR)
 
-            self._read_chunk()
+            self._read_chunk([*parents, current] if current else parents)
 
         self._file.seek(end, io.SEEK_SET)
 
