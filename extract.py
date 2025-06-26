@@ -337,7 +337,7 @@ def write_gltf2_model(wdb: WDB, model: WDB.Model, filename: str, all_lods: bool)
             return roi_node
         return None
 
-    root_node = add_roi(model.roi, model.animation)
+    root_node = add_roi(model.roi, model.animation.tree)
     if root_node:
         writer.root_node = root_node
 

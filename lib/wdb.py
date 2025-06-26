@@ -6,7 +6,7 @@ from enum import IntEnum
 from itertools import zip_longest
 from typing import Optional, cast
 
-from lib.animation import AnimationNode
+from lib.animation import Animation
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class WDB:
     @dataclass
     class Model:
         roi: "WDB.Roi"
-        animation: AnimationNode
+        animation: Animation
 
     @dataclass
     class Roi:
@@ -304,22 +304,7 @@ class WDB:
         num_rois = struct.unpack("<I", self._file.read(4))[0]
         logger.debug(f"{num_rois=}")
 
-        num_animations = struct.unpack("<I", self._file.read(4))[0]
-        logger.debug(f"{num_animations=}")
-
-        for _ in range(num_animations):
-            animation_name = self._read_str()
-            logger.debug(f"{animation_name=}")
-
-            unknown = struct.unpack("<I", self._file.read(4))[0]
-            logger.debug(f"{unknown=}")
-
-            raise NotImplementedError("Animations were apparently never used")
-
-        duration = struct.unpack("<I", self._file.read(4))[0]
-        logger.debug(f"{duration=}")
-
-        animation = AnimationNode.read(self._file)
+        animation = Animation(self._file, 0)
 
         scanned_model_names: set[str] = set()
         roi = self._read_roi(scanned_model_names, offset)

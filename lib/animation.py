@@ -148,3 +148,27 @@ class AnimationNode:
         for _ in range(num_children):
             children.append(AnimationNode.read(reader))
         return AnimationNode(animation_data_name, translation_keys, rotation_keys, scale_keys, morph_keys, children)
+
+
+class Animation:
+    actors: list[str]
+    duration: int
+    tree: AnimationNode
+
+    def __init__(self, file: "io.BufferedIOBase | ReaderHelper", parse_scene: int):
+        reader = ReaderHelper.from_reader(file)
+        actor_count = reader.read_u32()
+        logger.debug(f"{actor_count=}")
+        self.actors = []
+        for _ in range(actor_count):
+            name = reader.read_str()
+            logger.debug(f"{name=}")
+            if name:
+                unkn2 = reader.read_u32()
+                logger.debug(f"{unkn2=}")
+                self.actors += [name]
+        self.duration = reader.read_s32()
+        logger.debug(f"{self.duration=}")
+        assert parse_scene == 0, "parse_scene not implemented"
+        self.tree = AnimationNode.read(reader)
+        logger.debug(f"{self.tree=}")

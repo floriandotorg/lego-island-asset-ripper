@@ -1,7 +1,5 @@
-from lib.animation import AnimationNode, ReaderHelper
+from lib.animation import Animation, ReaderHelper
 
-from dataclasses import dataclass
-import struct
 import io
 import logging
 
@@ -21,23 +19,9 @@ class Ani:
         logger.debug(f"{parse_scene=}")
         val3 = reader.read_s32()
         logger.debug(f"{val3=}")
-        animation_count = reader.read_u32()
-        logger.debug(f"{animation_count=}")
-        for _ in range(animation_count):
-            name = reader.read_str()
-            logger.debug(f"{name=}")
-            if name:
-                unkn2 = reader.read_u32()
-                logger.debug(f"{unkn2=}")
-            duration = reader.read_s32()
-            logger.debug(f"{duration=}")
-            assert parse_scene == 0, "parse_scene not implemented"
-            animation = AnimationNode.read(reader)
-            logger.debug(f"{animation=}")
-
+        animation = Animation(reader, parse_scene)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     with open("sba001bu.ani", "rb") as f:
         ani = Ani(f)
-
