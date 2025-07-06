@@ -23,6 +23,13 @@ It'll extract all generated files into the `extract` directory for each SI-file.
 ## Requirements
 
 - Python 3.13+
+- pillow 11.2.1+
+- typed-ffmpeg 3.5.1+
+- numpy 2.3.1+
+- python-dotenv 1.1.1+
+
+Note that `ffmpeg` needs to be available for `typed-ffmpeg`. Placing the binary (`ffmpeg.exe` or `ffmpeg`) itself in
+this directory is sufficent.
 
 ---
 
