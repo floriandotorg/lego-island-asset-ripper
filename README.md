@@ -4,7 +4,10 @@ This is an asset ripper for the classic 1997 game LEGO Island. It extracts all a
 
 ![lego_island_blender](https://github.com/user-attachments/assets/a0587ce7-7241-4262-ad6d-78dfae8bea8f)
 
-It'll extract all generated files into the `extract` directory for each SI-file.
+It'll extract all generated files into the `extract` directory for each SI-file. If also a path to the isle
+decompliation directory is provided, it'll generate the corresponding typescript files in `actions` for each SI-file.
+The directory either needs to contain all header files directly or it must be the root directory of the decompliation
+repository.
 
 ---
 
@@ -36,11 +39,15 @@ this directory is sufficent.
 ## Usage
 
 ```bash
-python extract.py <ISO_FILE>
+python extract.py <ISO_FILE> [-E] [--isle ISLEDECOMP]
 ```
 
 Replace `<ISO_FILE>` with the path to your LEGO Island ISO file and if none is provided it'll query via a file open
 dialog. Full extract takes around 5-10 minutes.
+
+With `-E`/`--no-extract` no files are extracted and can be used to generate the typescript files. When `-I`/`--isle` or
+`LEGO_ISLAND_DECOMP_FOLDER` point to the isle decompliation directory, it'll generate the typescript files. The
+parameter takes precedence.
 
 #### Example:
 

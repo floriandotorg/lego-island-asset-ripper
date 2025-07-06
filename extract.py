@@ -1,7 +1,9 @@
+import argparse
 import io
 import json
 import logging
 import os
+import pathlib
 import re
 import struct
 import sys
@@ -71,9 +73,9 @@ def write_flc_sprite_sheet(flc: FLC, filename: str) -> None:
     write_png(all_frames, flc.width, flc.height * len(flc.frames), filename)
 
 
-def get_iso_path() -> str:
-    if len(sys.argv) > 1:
-        return sys.argv[1]
+def get_iso_path(argument: str | None) -> str:
+    if argument:
+        return argument
 
     path = filedialog.askopenfilename(
         title="Select ISO file",
@@ -84,11 +86,16 @@ def get_iso_path() -> str:
     return path
 
 
-extract_assets = True
-
 if __name__ == "__main__":
     logging.basicConfig(level=log_level)
     os.makedirs("extract", exist_ok=True)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("iso", nargs='?', help="path to the iso file (if not provided, does show file open dialog)")
+    parser.add_argument("-E", "--no-extract", action="store_true", help="does not extract and convert the contents from ISO file")
+    parser.add_argument("--isle", metavar="ISLEDECOMP", help="provide the file path to the decompilation project and generate typescript files from the header files")
+
+    args = parser.parse_args()
 
     @dataclass
     class File:
@@ -100,7 +107,7 @@ if __name__ == "__main__":
 
         os.makedirs(f"extract/{filename}", exist_ok=True)
 
-        if not extract_assets:
+        if args.no_extract:
             return 0
 
         match obj.file_type:
@@ -183,7 +190,7 @@ if __name__ == "__main__":
 
     si_files: list[File] = []
     wdb_files: list[io.BytesIO] = []
-    with ISO9660(get_iso_path()) as iso:
+    with ISO9660(get_iso_path(args.iso)) as iso:
         for file in iso.filelist:
             if not file.endswith(".SI") and not file.endswith(".WDB"):
                 continue
@@ -201,9 +208,9 @@ if __name__ == "__main__":
             except ValueError:
                 logger.error(f"Error opening {file}")
 
-    exported_files = 0
+    if not args.no_extract:
+        exported_files = 0
 
-    if extract_assets:
         logger.info("Exporting WDB textures ..")
         os.makedirs("extract/world", exist_ok=True)
         os.makedirs("extract/world/images", exist_ok=True)
@@ -226,74 +233,85 @@ if __name__ == "__main__":
         for si_file in si_files:
             process_file(si_file)
 
-    logger.info(f"Exported {exported_files} files")
+        logger.info(f"Exported {exported_files} files")
 
-    if not os.getenv("LEGO_ISLAND_DECOMP_FOLDER"):
-        sys.exit(1)
+    if args.isle:
+        isle_path_str = args.isle
+    else:
+        isle_path_str = os.getenv('LEGO_ISLAND_DECOMP_FOLDER')
 
-    objects: dict[str, dict[int, SI.Object]] = defaultdict(dict)
+    if isle_path_str:
+        isle_path = pathlib.Path(isle_path_str)
+        if not isle_path.is_dir():
+            logger.error("Isle path is not a valid directory")
+            sys.exit(1)
 
-    def walk(objs: list[SI.Object]) -> list[SI.Object]:
-        result: list[SI.Object] = []
-        for obj in objs:
-            result.append(obj)
-        return result
+        if "LEGO1" in (p.name for p in isle_path.iterdir()):
+            isle_path = isle_path / "LEGO1" / "lego" / "legoomni" / "include" / "actions"
 
-    for si_file in si_files:
-        for obj in si_file.si.object_list.values():
-            objects[si_file.name][obj.id] = obj
+        objects: dict[str, dict[int, SI.Object]] = defaultdict(dict)
 
-    def filter_none_deep(data: Any) -> Any:
-        if isinstance(data, SI.Object):
-            data = data.to_dict()
+        def walk(objs: list[SI.Object]) -> list[SI.Object]:
+            result: list[SI.Object] = []
+            for obj in objs:
+                result.append(obj)
+            return result
 
-        if isinstance(data, list):
-            return [filter_none_deep(item) for item in data]
-        elif isinstance(data, dict):
-            return {key: filter_none_deep(value) for key, value in data.items() if value is not None}
-        elif isinstance(data, str):
-            return data if data else None
-        else:
-            return data
+        for si_file in si_files:
+            for obj in si_file.si.object_list.values():
+                objects[si_file.name][obj.id] = obj
 
-    os.makedirs("actions", exist_ok=True)
-    with open("actions/types.ts", "w") as tfile:
-        tfile.write("export namespace Action {\n")
+        def filter_none_deep(data: Any) -> Any:
+            if isinstance(data, SI.Object):
+                data = data.to_dict()
 
-        tfile.write("export enum Type {\n")
-        for name, tvalue in SI.Type.__members__.items():
-            tfile.write(f"    {name} = {tvalue},\n")
-        tfile.write("}\n")
+            if isinstance(data, list):
+                return [filter_none_deep(item) for item in data]
+            elif isinstance(data, dict):
+                return {key: filter_none_deep(value) for key, value in data.items() if value is not None}
+            elif isinstance(data, str):
+                return data if data else None
+            else:
+                return data
 
-        tfile.write("export enum FileType {\n")
-        for name, fvalue in SI.FileType.__members__.items():
-            tfile.write(f"    {name} = {fvalue},\n")
-        tfile.write("}\n")
+        os.makedirs("actions", exist_ok=True)
+        with open("actions/types.ts", "w") as tfile:
+            tfile.write("export namespace Action {\n")
 
-        tfile.write("export enum Flags {\n")
-        for name, flvalue in SI.Flags.__members__.items():
-            tfile.write(f"    {name} = {flvalue},\n")
-        tfile.write("}\n")
+            tfile.write("export enum Type {\n")
+            for name, tvalue in SI.Type.__members__.items():
+                tfile.write(f"    {name} = {tvalue},\n")
+            tfile.write("}\n")
 
-        tfile.write("}\n")
+            tfile.write("export enum FileType {\n")
+            for name, fvalue in SI.FileType.__members__.items():
+                tfile.write(f"    {name} = {fvalue},\n")
+            tfile.write("}\n")
 
-    def set_filename(obj: SI.Object, filename: str) -> None:
-        obj.si_file = filename
-        for child in obj.children:
-            set_filename(child, filename)
+            tfile.write("export enum Flags {\n")
+            for name, flvalue in SI.Flags.__members__.items():
+                tfile.write(f"    {name} = {flvalue},\n")
+            tfile.write("}\n")
 
-    for filename, obj_dict in objects.items():
-        filename = os.path.basename(filename).lower().replace(".si", "")
-        print(f"Processing {filename} ..")
-        with open(f"{os.getenv('LEGO_ISLAND_DECOMP_FOLDER')}/{filename}_actions.h", "r") as hfile:
-            matches = re.findall(r"c_([A-Z0-9_]+)\s*=\s*(\d+)", hfile.read(), re.IGNORECASE | re.MULTILINE)
-            with open(f"actions/{filename}.ts", "w") as tfile:
-                tfile.write('import { Action } from "./types"\n')
+            tfile.write("}\n")
 
-                for match in matches:
-                    action = obj_dict[int(match[1])]
-                    set_filename(action, filename)
-                    obj_str = json.dumps(filter_none_deep(action.to_dict()), indent=2)
-                    obj_str = re.sub(r"\"type\": (\d+)", lambda match: f'"type": Action.Type.{SI.Type(int(match.group(1))).name}', obj_str)
-                    obj_str = re.sub(r"\"file_type\": (\d+)", lambda match: f'"file_type": Action.FileType.{SI.FileType(int(match.group(1))).name}', obj_str)
-                    tfile.write(f"export const {match[0]} = {obj_str} as const\n")
+        def set_filename(obj: SI.Object, filename: str) -> None:
+            obj.si_file = filename
+            for child in obj.children:
+                set_filename(child, filename)
+
+        for filename, obj_dict in objects.items():
+            filename = os.path.basename(filename).lower().replace(".si", "")
+            print(f"Processing {filename} ..")
+            with open(isle_path / f"{filename}_actions.h", "r") as hfile:
+                matches = re.findall(r"c_([A-Z0-9_]+)\s*=\s*(\d+)", hfile.read(), re.IGNORECASE | re.MULTILINE)
+                with open(f"actions/{filename}.ts", "w") as tfile:
+                    tfile.write('import { Action } from "./types"\n')
+
+                    for match in matches:
+                        action = obj_dict[int(match[1])]
+                        set_filename(action, filename)
+                        obj_str = json.dumps(filter_none_deep(action.to_dict()), indent=2)
+                        obj_str = re.sub(r"\"type\": (\d+)", lambda match: f'"type": Action.Type.{SI.Type(int(match.group(1))).name}', obj_str)
+                        obj_str = re.sub(r"\"file_type\": (\d+)", lambda match: f'"file_type": Action.FileType.{SI.FileType(int(match.group(1))).name}', obj_str)
+                        tfile.write(f"export const {match[0]} = {obj_str} as const\n")
