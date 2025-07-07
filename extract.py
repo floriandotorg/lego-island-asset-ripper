@@ -222,11 +222,11 @@ if __name__ == "__main__":
 
             wdb = WDB(io.BytesIO(open("extract/world.wdb", "rb").read()))
             for image in wdb.images:
-                write_gif(image, f"extract/world/images/{image.title}.png")
+                write_gif(image, f"extract/world/images/{image.title.lower()}.png")
             for texture in wdb.part_textures:
-                write_gif(texture, f"extract/world/part_textures/{texture.title}.png")
+                write_gif(texture, f"extract/world/part_textures/{texture.title.lower()}.png")
             for model_texture in wdb.model_textures:
-                write_gif(model_texture, f"extract/world/model_textures/{model_texture.title}.png")
+                write_gif(model_texture, f"extract/world/model_textures/{model_texture.title.lower()}.png")
             exported_files += len(wdb.images) + len(wdb.part_textures) + len(wdb.model_textures)
         logger.info("Exporting WDB textures .. [done]")
 
