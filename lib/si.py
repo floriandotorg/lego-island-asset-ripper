@@ -54,6 +54,7 @@ class SI:
         si_file: str
         id: int
         flags: int
+        start_time: int
         duration: int
         loops: int
         location: tuple[float, float, float]
@@ -73,7 +74,7 @@ class SI:
             return io.BytesIO(self.data)
 
         def to_dict(self) -> dict[str, Any]:
-            return {"type": self.type, "presenter": self.presenter, "name": self.name, "siFile": self.si_file, "id": self.id, "flags": self.flags, "duration": self.duration, "loops": self.loops, "location": self.location, "direction": self.direction, "up": self.up, "filename": self.filename, "fileType": self.file_type, "volume": self.volume, "extra": self.extra_data, "fps": self.fps, "numFrames": self.num_frames, "children": [child.to_dict() for child in self.children]}
+            return {"type": self.type, "presenter": self.presenter, "name": self.name, "siFile": self.si_file, "id": self.id, "flags": self.flags, "startTime": self.start_time, "duration": self.duration, "loops": self.loops, "location": self.location, "direction": self.direction, "up": self.up, "filename": self.filename, "fileType": self.file_type, "volume": self.volume, "extra": self.extra_data, "fps": self.fps, "numFrames": self.num_frames, "children": [child.to_dict() for child in self.children]}
 
     class Version(IntEnum):
         Version2_1 = 0x00010002
@@ -145,7 +146,7 @@ class SI:
                 presenter = self._read_null_terminated_string()
                 self._file.seek(4, io.SEEK_CUR)  # unknown 1
                 name = self._read_null_terminated_string()
-                id, flags, duration, loops, *coords = struct.unpack("<2I4x2I9d", self._file.read(92))
+                id, flags, start_time, duration, loops, *coords = struct.unpack("<5I9d", self._file.read(92))
                 extra_data_length = self._read_uint16()
                 if extra_data_length:
                     extra_data = self._file.read(extra_data_length)[:-1].decode("ascii")
@@ -164,7 +165,7 @@ class SI:
                 (loc_x, loc_y, loc_z) = tuple(map(float, coords[:3]))
                 (dir_x, dir_y, dir_z) = tuple(map(float, coords[3:6]))
                 (up_x, up_y, up_z) = tuple(map(float, coords[6:]))
-                obj = SI.Object(type, presenter, name, "", id, flags, duration, loops, (loc_x, loc_y, loc_z), (dir_x, dir_y, dir_z), (up_x, up_y, up_z), filename=filename, file_type=file_type, volume=volume, extra_data=extra_data)
+                obj = SI.Object(type, presenter, name, "", id, flags, start_time, duration, loops, (loc_x, loc_y, loc_z), (dir_x, dir_y, dir_z), (up_x, up_y, up_z), filename=filename, file_type=file_type, volume=volume, extra_data=extra_data)
                 self._object_list[id] = obj
                 parent = parents[-1] if parents else None
                 if parent:
