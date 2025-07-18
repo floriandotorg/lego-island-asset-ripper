@@ -308,6 +308,16 @@ if __name__ == "__main__":
         for filename, obj_dict in objects.items():
             filename = os.path.basename(filename).lower().replace(".si", "")
             print(f"Processing {filename} ..")
+
+            for obj in obj_dict.values():
+                if obj.file_type == SI.FileType.STL:
+                    still = get_image(obj)
+                    obj.dimensions = SI.Dimensions(still.width, still.height)
+                    palette = still.getpalette()
+                    if palette and ("Map;" in obj.extra_data or "Filler_index" in obj.extra_data):
+                        assert len(palette) % 3 == 0
+                        obj.color_palette = [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in itertools.batched(palette, 3)]
+
             with open(isle_path / f"{filename}_actions.h", "r") as hfile:
                 matches = re.findall(r"c_([A-Z0-9_]+)\s*=\s*(\d+)", hfile.read(), re.IGNORECASE | re.MULTILINE)
                 with open(f"actions/{filename}.ts", "w") as tfile:
@@ -315,13 +325,6 @@ if __name__ == "__main__":
 
                     for match in matches:
                         action = obj_dict[int(match[1])]
-                        if action.file_type == SI.FileType.STL:
-                            still = get_image(action)
-                            action.dimensions = SI.Dimensions(still.width, still.height)
-                            palette = still.getpalette()
-                            if palette and ("Map;" in action.extra_data or "Filler_index" in action.extra_data):
-                                assert len(palette) % 3 == 0
-                                action.color_palette = [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in itertools.batched(palette, 3)]
                         set_filename(action, filename)
                         obj_str = json.dumps(filter_none_deep(action.to_dict()), indent=2)
                         obj_str = re.sub(r"\"type\": (\d+)", lambda match: f'"type": Action.Type.{SI.Type(int(match.group(1))).name}', obj_str)
