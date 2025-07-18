@@ -15,6 +15,7 @@
 		"frombuffer",
 		"frombytes",
 		"fvalue",
+		"getpalette",
 		"gltf",
 		"Gouraud",
 		"IDAT",

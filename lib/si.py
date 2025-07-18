@@ -47,6 +47,14 @@ class SI:
         End = 0x02
 
     @dataclass
+    class Dimensions:
+        width: int
+        height: int
+
+        def to_dict(self) -> dict[str, Any]:
+            return {"width": self.width, "height": self.height}
+
+    @dataclass
     class Object:
         type: "SI.Type"
         presenter: str
@@ -69,12 +77,14 @@ class SI:
         children: list["SI.Object"] = field(default_factory=list)
         fps: Optional[int] = None
         num_frames: Optional[int] = None
+        dimensions: Optional["SI.Dimensions"] = None
+        color_palette: Optional[list[str]] = None
 
         def open(self) -> io.BytesIO:
             return io.BytesIO(self.data)
 
         def to_dict(self) -> dict[str, Any]:
-            return {"type": self.type, "presenter": self.presenter, "name": self.name, "siFile": self.si_file, "id": self.id, "flags": self.flags, "startTime": self.start_time, "duration": self.duration, "loops": self.loops, "location": self.location, "direction": self.direction, "up": self.up, "filename": self.filename, "fileType": self.file_type, "volume": self.volume, "extra": self.extra_data, "fps": self.fps, "numFrames": self.num_frames, "children": [child.to_dict() for child in self.children]}
+            return {"type": self.type, "presenter": self.presenter, "name": self.name, "siFile": self.si_file, "id": self.id, "flags": self.flags, "startTime": self.start_time, "duration": self.duration, "loops": self.loops, "location": self.location, "direction": self.direction, "up": self.up, "filename": self.filename, "fileType": self.file_type, "volume": self.volume, "extra": self.extra_data, "fps": self.fps, "numFrames": self.num_frames, "dimensions": self.dimensions.to_dict() if self.dimensions else None, "colorPalette": self.color_palette, "children": [child.to_dict() for child in self.children]}
 
     class Version(IntEnum):
         Version2_1 = 0x00010002

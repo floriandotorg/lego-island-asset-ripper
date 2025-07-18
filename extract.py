@@ -1,5 +1,6 @@
 import argparse
 import io
+import itertools
 import json
 import logging
 import os
@@ -41,11 +42,15 @@ def write_png(data: bytes, width: int, height: int, filename: str, flip: bool = 
     image.save(filename)
 
 
-def write_bitmap(filename: str, obj: SI.Object) -> None:
+def get_image(obj: SI.Object) -> Image.Image:
     mem_file = io.BytesIO()
     mem_file.write(struct.pack("<2sIII", b"BM", len(obj.data), 0, obj.chunk_sizes[0] + 14))
     mem_file.write(obj.data)
-    image = Image.open(mem_file)
+    return Image.open(mem_file)
+
+
+def write_bitmap(filename: str, obj: SI.Object) -> None:
+    image = get_image(obj)
     write_png(image.convert("RGB").tobytes(), image.width, image.height, filename)
 
 
@@ -91,7 +96,7 @@ if __name__ == "__main__":
     os.makedirs("extract", exist_ok=True)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("iso", nargs='?', help="path to the iso file (if not provided, does show file open dialog)")
+    parser.add_argument("iso", nargs="?", help="path to the iso file (if not provided, does show file open dialog)")
     parser.add_argument("-E", "--no-extract", action="store_true", help="does not extract and convert the contents from ISO file")
     parser.add_argument("--isle", metavar="ISLEDECOMP", help="provide the file path to the decompilation project and generate typescript files from the header files")
 
@@ -238,7 +243,7 @@ if __name__ == "__main__":
     if args.isle:
         isle_path_str = args.isle
     else:
-        isle_path_str = os.getenv('LEGO_ISLAND_DECOMP_FOLDER')
+        isle_path_str = os.getenv("LEGO_ISLAND_DECOMP_FOLDER")
 
     if isle_path_str:
         isle_path = pathlib.Path(isle_path_str)
@@ -310,6 +315,13 @@ if __name__ == "__main__":
 
                     for match in matches:
                         action = obj_dict[int(match[1])]
+                        if action.file_type == SI.FileType.STL:
+                            still = get_image(action)
+                            action.dimensions = SI.Dimensions(still.width, still.height)
+                            palette = still.getpalette()
+                            if palette and ("Map;" in action.extra_data or "Filler_index" in action.extra_data):
+                                assert len(palette) % 3 == 0
+                                action.color_palette = [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in itertools.batched(palette, 3)]
                         set_filename(action, filename)
                         obj_str = json.dumps(filter_none_deep(action.to_dict()), indent=2)
                         obj_str = re.sub(r"\"type\": (\d+)", lambda match: f'"type": Action.Type.{SI.Type(int(match.group(1))).name}', obj_str)
