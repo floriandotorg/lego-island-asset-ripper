@@ -40,6 +40,7 @@ class WDB:
     class Roi:
         name: str
         lods: list["WDB.Lod"]
+        reference: str | None
         children: list["WDB.Roi"]
         texture_name: str
 
@@ -97,13 +98,13 @@ class WDB:
         for texture in self._model_textures:
             if texture.title == texture_name:
                 return texture
-        raise KeyError()
+        raise KeyError(texture_name)
 
     def part_texture_by_name(self, texture_name: str) -> Gif:
         for texture in self._part_textures:
             if texture.title == texture_name:
                 return texture
-        raise KeyError()
+        raise KeyError(texture_name)
 
     def _read_gif(self, title: str | None = None) -> Gif:
         if title is None:
@@ -235,9 +236,11 @@ class WDB:
         logger.debug(f"{defined_elsewhere=}")
 
         lods: list[WDB.Lod] = []
+        reference: str | None = None
         if defined_elsewhere != 0:
             roi_name = model_name.rstrip("0123456789")
             logger.debug(f"{roi_name=}")
+            reference = roi_name
         else:
             num_lods = struct.unpack("<I", self._file.read(4))[0]
             logger.debug(f"{num_lods=}")
@@ -253,7 +256,7 @@ class WDB:
         for _ in range(num_rois):
             children.append(self._read_roi(scanned_model_names, offset, path))
 
-        return WDB.Roi(model_name, lods, children, texture_name)
+        return WDB.Roi(model_name, lods, reference, children, texture_name)
 
     def _read_part(self, offset: int) -> list["WDB.Part"]:
         result = []

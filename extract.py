@@ -258,17 +258,24 @@ def write_gltf2_mesh(mesh: WDB.Mesh, texture: (WDB.Gif | None), name: str, filen
     writer.write(filename)
 
 
+def _add_lod(lod: WDB.Lod, lod_name: str, writer: GLBWriter, texture_by_name: Callable[[str], WDB.Gif]) -> GLBWriter.Parent | None:
+    if not lod.meshes:
+        return None
+    lod_node = GLBWriter.Parent(lod_name)
+    for mesh_index, mesh in enumerate(lod.meshes):
+        if mesh.uvs:
+            texture = texture_by_name(mesh.texture_name)
+        else:
+            texture = None
+        mesh_node = writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}")
+        lod_node.add_child(mesh_node)
+    return lod_node
+
+
 def write_gltf2_lod(lod: WDB.Lod, lod_name: str, filename: str, texture_by_name: Callable[[str], WDB.Gif]) -> None:
-    if lod.meshes:
-        writer = GLBWriter()
-        root = GLBWriter.Parent(lod_name)
-        for mesh_index, mesh in enumerate(lod.meshes):
-            if mesh.uvs:
-                texture = texture_by_name(mesh.texture_name)
-            else:
-                texture = None
-            mesh_node = writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}")
-            root.add_child(mesh_node)
+    writer = GLBWriter()
+    root = _add_lod(lod, lod_name, writer, texture_by_name)
+    if root:
         writer.root_node = root
         writer.write(filename)
 
@@ -276,18 +283,13 @@ def write_gltf2_lod(lod: WDB.Lod, lod_name: str, filename: str, texture_by_name:
 def write_gltf2_model(wdb: WDB, model: WDB.Model, filename: str, all_lods: bool) -> None:
     writer = GLBWriter()
 
-    def add_lod(lod_index: int, lod: WDB.Lod, name: str) -> GLBWriter.Parent | None:
-        if not lod.meshes:
-            return None
-        lod_name = f"{name}_L{lod_index}"
-        lod_node = GLBWriter.Parent(lod_name)
-        for mesh_index, mesh in enumerate(lod.meshes):
-            if mesh.uvs:
-                texture = wdb.model_texture_by_name(mesh.texture_name)
-            else:
-                texture = None
-            lod_node.add_child(writer.add_mesh(mesh, texture, f"{lod_name}_M{mesh_index}"))
-        return lod_node
+    def add_lod(lods: list[WDB.Lod], name: str, parent: GLBWriter.Parent, is_model: bool) -> None:
+        start = 0 if all_lods else len(lods) - 1
+        for lod_index, lod in enumerate(lods[start:], start):
+            lod_name = f"{name}_L{lod_index}"
+            lod_node = _add_lod(lod, lod_name, writer, wdb.model_texture_by_name if is_model else wdb.part_texture_by_name)
+            if lod_node:
+                parent.add_child(lod_node)
 
     def add_roi(roi: WDB.Roi, animation: (AnimationNode | None)) -> GLBWriter.Parent | None:
         roi_node = GLBWriter.Parent(roi.name)
@@ -312,15 +314,16 @@ def write_gltf2_model(wdb: WDB, model: WDB.Model, filename: str, all_lods: bool)
                     transformation["rotation"] = animation.rotation_keys[0].quaternion
         roi_node.data.update(transformation)
 
-        if all_lods:
-            for lod_index, lod in enumerate(roi.lods):
-                lod_node = add_lod(lod_index, lod, roi.name)
-                if lod_node:
-                    roi_node.add_child(lod_node)
-        elif roi.lods:
-            lod_node = add_lod(len(roi.lods) - 1, roi.lods[-1], roi.name)
-            if lod_node:
-                roi_node.add_child(lod_node)
+        add_lod(roi.lods, roi.name, roi_node, True)
+
+        if roi.reference:
+            logger.info(f"{roi.name} (in {model.roi.name}) references another roi: '{roi.reference}'")
+            for part in wdb.parts:
+                if part.name.lower() == roi.reference.lower():
+                    add_lod(part.lods, part.name, roi_node, False)
+                    break
+            else:
+                logger.warning(f"Cannot find '{roi.reference}' (in {model.roi.name}) referenced from {roi.name} in parts list")
 
         for child in roi.children:
             if animation:
