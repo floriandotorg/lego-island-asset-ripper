@@ -79,6 +79,7 @@ class SI:
         num_frames: Optional[int] = None
         dimensions: Optional["SI.Dimensions"] = None
         color_palette: Optional[list[str]] = None
+        should_export_palette: bool = False
 
         def open(self) -> io.BytesIO:
             return io.BytesIO(self.data)

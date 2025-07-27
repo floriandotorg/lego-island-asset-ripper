@@ -310,11 +310,17 @@ if __name__ == "__main__":
             print(f"Processing {filename} ..")
 
             for obj in obj_dict.values():
+                if "Map;" in obj.extra_data or "Filler_index" in obj.extra_data:
+                    obj.should_export_palette = True
+                    for child in obj.children:
+                        child.should_export_palette = True
+
+            for obj in obj_dict.values():
                 if obj.file_type == SI.FileType.STL:
                     still = get_image(obj)
                     obj.dimensions = SI.Dimensions(still.width, still.height)
                     palette = still.getpalette()
-                    if palette and ("Map;" in obj.extra_data or "Filler_index" in obj.extra_data):
+                    if palette and obj.should_export_palette:
                         assert len(palette) % 3 == 0
                         obj.color_palette = [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in itertools.batched(palette, 3)]
 
