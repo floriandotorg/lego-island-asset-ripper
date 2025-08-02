@@ -6,6 +6,7 @@ import logging
 import os
 import pathlib
 import re
+import shutil
 import struct
 import sys
 from collections import defaultdict
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from tkinter import filedialog
 from typing import Any
 
+import cv2
 import dotenv
 import ffmpeg
 import numpy as np
@@ -21,6 +23,7 @@ from PIL import Image
 from lib.flc import FLC
 from lib.iso import ISO9660
 from lib.si import SI
+from lib.smk import SMK
 from lib.wdb import WDB
 
 dotenv.load_dotenv()
@@ -51,6 +54,9 @@ def get_image(obj: SI.Object) -> Image.Image:
 
 def write_bitmap(filename: str, obj: SI.Object) -> None:
     image = get_image(obj)
+    img_array = np.array(image.convert("RGB"))
+    filtered_img = cv2.bilateralFilter(img_array, 5, 50, 50)
+    image = Image.fromarray(filtered_img)
     write_png(image.convert("RGB").tobytes(), image.width, image.height, filename)
 
 
@@ -89,6 +95,21 @@ def get_iso_path(argument: str | None) -> str:
     if not path:
         sys.exit("No file selected")
     return path
+
+
+def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int) -> None:
+    folder_name = f"frames_{filename}_{obj.id}"
+    os.makedirs(folder_name, exist_ok=True)
+    ffmpeg.input(filename="-").output(filename=f"{folder_name}/frame_%05d.png").overwrite_output().run(quiet=True, input=mem_file.getvalue())
+    for frame_file in os.listdir(folder_name):
+        frame_path = f"{folder_name}/{frame_file}"
+        image = cv2.imread(frame_path)
+        if image is None:
+            raise Exception(f"Error reading {frame_path}")
+        filtered = cv2.bilateralFilter(image, 10, 75, 75)
+        cv2.imwrite(frame_path, filtered)
+    ffmpeg.input(filename=f"{folder_name}/frame_%05d.png", r=fps).output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=0, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart")).overwrite_output().run(quiet=True)
+    shutil.rmtree(folder_name)
 
 
 if __name__ == "__main__":
@@ -166,23 +187,21 @@ if __name__ == "__main__":
             case SI.FileType.FLC:
                 mem_file = io.BytesIO()
                 write_flc(mem_file, obj)
-                # mem_file.seek(0)
-                # try:
-                #     flc = FLC(mem_file)
-                #     obj.fps = flc.fps
-                #     obj.num_frames = len(flc.frames)
-                #     write_flc_sprite_sheet(flc, f"extract/{filename}/{obj.id}.png")
-                # except Exception as e:
-                #     logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
-                #     return 0
                 mem_file.seek(0)
-                ffmpeg.input(filename="-").output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=0, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart")).overwrite_output().run(quiet=True, input=mem_file.getvalue())
+                try:
+                    flc = FLC(mem_file)
+                    mem_file.seek(0)
+                    write_video(filename, obj, mem_file, flc.fps)
+                except Exception as e:
+                    logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
                 return 1
             case SI.FileType.SMK:
                 mem_file = io.BytesIO()
                 mem_file.write(obj.data)
                 mem_file.seek(0)
-                ffmpeg.input(filename="-").output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=0, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart")).overwrite_output().run(quiet=True, input=mem_file.getvalue())
+                smk = SMK(mem_file)
+                mem_file.seek(0)
+                write_video(filename, obj, mem_file, smk.fps)
                 return 1
             case _:
                 return 0

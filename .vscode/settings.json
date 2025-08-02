@@ -22,6 +22,8 @@
 		"IEND",
 		"ihdr",
 		"IHDR",
+		"imread",
+		"imwrite",
 		"legoomni",
 		"libx",
 		"lods",
