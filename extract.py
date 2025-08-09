@@ -108,7 +108,7 @@ def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int) -
             raise Exception(f"Error reading {frame_path}")
         filtered = cv2.bilateralFilter(image, 10, 75, 75)
         cv2.imwrite(frame_path, filtered)
-    ffmpeg.input(filename=f"{folder_name}/frame_%05d.png", r=fps).output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=0, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart")).overwrite_output().run(quiet=True)
+    ffmpeg.input(filename=f"{folder_name}/frame_%05d.png", r=fps).output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=18, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart"), pix_fmt="yuv420p").overwrite_output().run(quiet=True)
     shutil.rmtree(folder_name)
 
 
@@ -191,7 +191,11 @@ if __name__ == "__main__":
                 try:
                     flc = FLC(mem_file)
                     mem_file.seek(0)
-                    write_video(filename, obj, mem_file, flc.fps)
+                    # face animations don't need to be filtered
+                    if flc.width == 128:
+                        ffmpeg.input(filename="-").output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=18, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart"), pix_fmt="yuv420p").overwrite_output().run(quiet=True, input=mem_file.getvalue())
+                    else:
+                        write_video(filename, obj, mem_file, flc.fps)
                 except Exception as e:
                     logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
                 return 1
