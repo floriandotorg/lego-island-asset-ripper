@@ -59,6 +59,10 @@ class FLC:
         self._palette: list[FLC.Color] = [FLC.Color(0, 0, 0)] * 256
         size, type, frames, self._width, self._height, self._delay_ms = struct.unpack("<IHHHH4xI108x", self._file.read(128))
         logger.debug(f"{size=:x} {type=:x} {frames=} {self._width=} {self._height=}")
+
+        # don't need to read the actual frames
+        return
+
         if type != 0xAF12:
             raise ValueError(f"Invalid FLC file: {type:x}")
         for _ in range(frames):
@@ -151,10 +155,7 @@ class FLC:
                     elif count > 0:
                         p = self._file.read(count * 2)
                         pos_start = (line * self._width + pixel) * 3
-                        frame[pos_start : pos_start + 6 * count] = b''.join(
-                            bytes(self._palette[p[i]]) + bytes(self._palette[p[i + 1]]) 
-                            for i in range(0, count * 2, 2)
-                        )
+                        frame[pos_start : pos_start + 6 * count] = b"".join(bytes(self._palette[p[i]]) + bytes(self._palette[p[i + 1]]) for i in range(0, count * 2, 2))
                         pixel += count * 2
                     else:
                         raise ValueError("Invalid FLC file: count is 0")

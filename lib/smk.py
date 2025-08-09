@@ -49,6 +49,10 @@ class SMK:
             self._framerate = 100_000 / -self._framerate
         else:
             self._framerate = 10
+
+        # don't need to read the actual frames
+        return
+
         logger.debug(f"{self._width=} {self._height=} {self._num_frames=} {self._framerate=}")
         frame_sizes = struct.unpack("<" + "I" * self._num_frames, self._file.read(self._num_frames * 4))
         is_keyframe = [frame_size & 0x01 == 1 for frame_size in frame_sizes]

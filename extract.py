@@ -342,6 +342,18 @@ if __name__ == "__main__":
                     if palette and obj.should_export_palette:
                         assert len(palette) % 3 == 0
                         obj.color_palette = [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in itertools.batched(palette, 3)]
+                elif obj.file_type == SI.FileType.FLC:
+                    try:
+                        mem_file = io.BytesIO()
+                        write_flc(mem_file, obj)
+                        mem_file.seek(0)
+                        flc = FLC(mem_file)
+                        obj.dimensions = SI.Dimensions(flc.width, flc.height)
+                    except Exception as e:
+                        logger.error(f"Error reading {filename}_{obj.id}.flc: {e}")
+                elif obj.file_type == SI.FileType.SMK:
+                    smk = SMK(io.BytesIO(obj.data))
+                    obj.dimensions = SI.Dimensions(smk.width, smk.height)
 
             with open(isle_path / f"{filename}_actions.h", "r") as hfile:
                 matches = re.findall(r"c_([A-Z0-9_]+)\s*=\s*(\d+)", hfile.read(), re.IGNORECASE | re.MULTILINE)
