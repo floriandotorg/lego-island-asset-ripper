@@ -97,7 +97,7 @@ def get_iso_path(argument: str | None) -> str:
     return path
 
 
-def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int) -> None:
+def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int, width: int, height: int) -> None:
     folder_name = f"frames_{filename}_{obj.id}"
     os.makedirs(folder_name, exist_ok=True)
     ffmpeg.input(filename="-").output(filename=f"{folder_name}/frame_%05d.png").overwrite_output().run(quiet=True, input=mem_file.getvalue())
@@ -108,7 +108,8 @@ def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int) -
             raise Exception(f"Error reading {frame_path}")
         filtered = cv2.bilateralFilter(image, 10, 75, 75)
         cv2.imwrite(frame_path, filtered)
-    ffmpeg.input(filename=f"{folder_name}/frame_%05d.png", r=fps).output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=18, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart"), pix_fmt="yuv420p").overwrite_output().run(quiet=True)
+    # h264 needs width and height to be divisible by 2
+    ffmpeg.input(filename=f"{folder_name}/frame_%05d.png", r=fps).scale(w=(width if width % 2 == 0 else width * 2), h=(height if height % 2 == 0 else height * 2)).output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=18, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart"), pix_fmt="yuv420p").overwrite_output().run(quiet=True)
     shutil.rmtree(folder_name)
 
 
@@ -193,9 +194,10 @@ if __name__ == "__main__":
                     mem_file.seek(0)
                     # face animations don't need to be filtered
                     if flc.width == 128:
-                        ffmpeg.input(filename="-").output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=18, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart"), pix_fmt="yuv420p").overwrite_output().run(quiet=True, input=mem_file.getvalue())
+                        # h264 needs width and height to be divisible by 2
+                        ffmpeg.input(filename="-").scale(h=(flc.height if flc.height % 2 == 0 else flc.height * 2)).output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=18, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart"), pix_fmt="yuv420p").overwrite_output().run(quiet=True, input=mem_file.getvalue())
                     else:
-                        write_video(filename, obj, mem_file, flc.fps)
+                        write_video(filename, obj, mem_file, flc.fps, flc.width, flc.height)
                 except Exception as e:
                     logger.error(f"Error writing {filename}_{obj.id}.flc: {e}")
                 return 1
@@ -205,7 +207,7 @@ if __name__ == "__main__":
                 mem_file.seek(0)
                 smk = SMK(mem_file)
                 mem_file.seek(0)
-                write_video(filename, obj, mem_file, smk.fps)
+                write_video(filename, obj, mem_file, smk.fps, smk.width, smk.height)
                 return 1
             case _:
                 return 0

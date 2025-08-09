@@ -26,6 +26,7 @@
 		"imread",
 		"imwrite",
 		"legoomni",
+		"libvpx",
 		"libx",
 		"lods",
 		"movflags",
