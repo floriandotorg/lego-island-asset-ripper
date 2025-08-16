@@ -188,6 +188,13 @@ if __name__ == "__main__":
             case SI.FileType.FLC:
                 mem_file = io.BytesIO()
                 write_flc(mem_file, obj)
+                # Manually patch the corrupted flic #65 in jukebox
+                # The size of the first chunk's subchunk is 5196 even though it should be 5198 (w*h + header).
+                if filename == "jukebox" and obj.id == 65:
+                    original_data = mem_file.getbuffer()
+                    assert original_data[0x39a] == 76
+                    original_data[0x39a] += 2
+                    assert original_data[0x39a] == 78
                 mem_file.seek(0)
                 try:
                     flc = FLC(mem_file)
