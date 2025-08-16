@@ -139,7 +139,7 @@ if __name__ == "__main__":
 
         match obj.file_type:
             case SI.FileType.OBJ:
-                if obj.presenter == "LegoAnimPresenter":
+                if obj.presenter == "LegoAnimPresenter" or obj.presenter == "LegoLocomotionAnimPresenter":
                     with open(f"extract/{filename}/{obj.id}.ani", "wb") as f:
                         f.write(obj.data)
                     return 1
@@ -192,9 +192,9 @@ if __name__ == "__main__":
                 # The size of the first chunk's subchunk is 5196 even though it should be 5198 (w*h + header).
                 if filename == "jukebox" and obj.id == 65:
                     original_data = mem_file.getbuffer()
-                    assert original_data[0x39a] == 76
-                    original_data[0x39a] += 2
-                    assert original_data[0x39a] == 78
+                    assert original_data[0x39A] == 76
+                    original_data[0x39A] += 2
+                    assert original_data[0x39A] == 78
                 mem_file.seek(0)
                 try:
                     flc = FLC(mem_file)
