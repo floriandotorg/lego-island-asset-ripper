@@ -196,21 +196,7 @@ files = [
 [package.extras]
 cli = ["click (>=5.0)"]
 
-[[package]]
-name = "typed-ffmpeg"
-version = "3.5.1"
-description = "Modern Python FFmpeg wrappers offer comprehensive support for complex filters, complete with detailed typing and documentation."
-optional = false
-python-versions = ">=3.10"
-files = [
-    {file = "typed_ffmpeg-3.5.1-py3-none-any.whl", hash = "sha256:528007cbeea110e1eb3837b9ef49b79b7a92ff09fa3f71b8a32c2ca31e7abedc"},
-    {file = "typed_ffmpeg-3.5.1.tar.gz", hash = "sha256:9e736ac95b967bfbb4636f7b18c4d74ee2f21f9c01b8fcf5a81dedcf97f2ab12"},
-]
-
-[package.extras]
-graph = ["graphviz"]
-
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.13"
-content-hash = "4e451a9c18846b86648509895b37e0c4d5fa921f399fe7037fd29f595231a90f"
+content-hash = "e7242ecd2d63f198f1904471a66533b75ed78d55298cc5471502d930ca18a30a"

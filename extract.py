@@ -8,6 +8,7 @@ import pathlib
 import re
 import shutil
 import struct
+import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -16,7 +17,6 @@ from typing import Any
 
 import cv2
 import dotenv
-import ffmpeg
 import numpy as np
 from PIL import Image
 
@@ -33,6 +33,18 @@ log_level = logging.INFO
 
 transparent_color = [255, 0, 255]
 
+def ffmpeg(ffmpeg_args: list[str], input_bytes: bytes | None = None) -> None:
+    params = ["ffmpeg"]
+    if input_bytes:
+        params.append("-i")
+        params.append("pipe:0")
+    params.append("-y")
+    params.extend(ffmpeg_args)
+    print(" ".join(params))
+    proc = subprocess.Popen(params, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = proc.communicate(input=input_bytes)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {stderr.decode('utf-8', errors='ignore')}")
 
 def write_png(data: bytes, width: int, height: int, filename: str, flip: bool = False) -> None:
     image = Image.frombytes("RGB", (width, height), data).convert("RGBA")
@@ -100,7 +112,7 @@ def get_iso_path(argument: str | None) -> str:
 def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int, width: int, height: int) -> None:
     folder_name = f"frames_{filename}_{obj.id}"
     os.makedirs(folder_name, exist_ok=True)
-    ffmpeg.input(filename="-").output(filename=f"{folder_name}/frame_%05d.png").overwrite_output().run(quiet=True, input=mem_file.getvalue())
+    ffmpeg([f"{folder_name}/frame_%05d.png"], mem_file.getvalue())
     for frame_file in os.listdir(folder_name):
         frame_path = f"{folder_name}/{frame_file}"
         image = cv2.imread(frame_path)
@@ -109,7 +121,7 @@ def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int, w
         filtered = cv2.bilateralFilter(image, 10, 75, 75)
         cv2.imwrite(frame_path, filtered)
     # h264 needs width and height to be divisible by 2
-    ffmpeg.input(filename=f"{folder_name}/frame_%05d.png", r=fps).scale(w=(width if width % 2 == 0 else width * 2), h=(height if height % 2 == 0 else height * 2)).output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=18, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart"), pix_fmt="yuv420p").overwrite_output().run(quiet=True)
+    ffmpeg(["-i", f"{folder_name}/frame_%05d.png", "-framerate", str(fps), "-vf", f"scale=w={width if width % 2 == 0 else width * 2}:h={height if height % 2 == 0 else height * 2}", "-c:v", "libx264", "-crf", "18", "-preset", "veryslow", "-pix_fmt", "yuv420p", "-avoid_negative_ts", "make_zero", "-fflags", "+genpts", "-movflags", "+faststart", f"extract/{filename}/{obj.id}.mp4"])
     shutil.rmtree(folder_name)
 
 
@@ -179,7 +191,7 @@ if __name__ == "__main__":
                 wav = bytearray()
                 wav.extend(extend_wav_chunk(b"RIFF", content))
 
-                ffmpeg.input(filename="-").output(filename=f"extract/{filename}/{obj.id}.m4a", codec="aac", b="128k").overwrite_output().run(quiet=True, input=wav)
+                ffmpeg(["-ac", "1", "-ar", "11025", "-c:a", "libfdk_aac", "-profile:a", "aac_low", "-vbr", "3", "-movflags", "+faststart", f"extract/{filename}/{obj.id}.m4a"], wav)
 
                 return 1
             case SI.FileType.STL:
@@ -202,7 +214,7 @@ if __name__ == "__main__":
                     # face animations don't need to be filtered
                     if flc.width == 128:
                         # h264 needs width and height to be divisible by 2
-                        ffmpeg.input(filename="-").scale(h=(flc.height if flc.height % 2 == 0 else flc.height * 2)).output(filename=f"extract/{filename}/{obj.id}.mp4", encoder_options=ffmpeg.codecs.encoders.libx264(crf=18, preset="veryslow"), muxer_options=ffmpeg.formats.muxers.mp4(movflags="faststart"), pix_fmt="yuv420p").overwrite_output().run(quiet=True, input=mem_file.getvalue())
+                        ffmpeg(["-vf", f"scale=w={flc.width if flc.width % 2 == 0 else flc.width * 2}:h={flc.height if flc.height % 2 == 0 else flc.height * 2}", "-c:v", "libx264", "-crf", "18", "-preset", "veryslow", "-pix_fmt", "yuv420p", "-avoid_negative_ts", "make_zero", "-fflags", "+genpts", "-movflags", "+faststart", f"extract/{filename}/{obj.id}.mp4"], mem_file.getvalue())
                     else:
                         write_video(filename, obj, mem_file, flc.fps, flc.width, flc.height)
                 except Exception as e:
