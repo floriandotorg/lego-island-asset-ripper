@@ -33,6 +33,12 @@ log_level = logging.INFO
 
 transparent_color = [255, 0, 255]
 
+
+def replace_ext(path, new_ext):
+    root, _ = os.path.splitext(path)
+    return root + new_ext
+
+
 def ffmpeg(ffmpeg_args: list[str], input_bytes: bytes | None = None) -> None:
     params = ["ffmpeg"]
     if input_bytes:
@@ -46,6 +52,17 @@ def ffmpeg(ffmpeg_args: list[str], input_bytes: bytes | None = None) -> None:
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg failed: {stderr.decode('utf-8', errors='ignore')}")
 
+
+def imagemagick(imagemagick_args: list[str]) -> None:
+    params = ["magick"]
+    params.extend(imagemagick_args)
+    print(" ".join(params))
+    proc = subprocess.Popen(params, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"imagemagick failed: {stderr.decode('utf-8', errors='ignore')}")
+
+
 def write_png(data: bytes, width: int, height: int, filename: str, flip: bool = False) -> None:
     image = Image.frombytes("RGB", (width, height), data).convert("RGBA")
     if flip:
@@ -55,6 +72,7 @@ def write_png(data: bytes, width: int, height: int, filename: str, flip: bool = 
     img_data[mask, 3] = 0
     image = Image.fromarray(img_data, "RGBA")
     image.save(filename)
+    imagemagick([filename, "-quality", "80", "-define", "heif:8", replace_ext(filename, ".avif")])
 
 
 def get_image(obj: SI.Object) -> Image.Image:
