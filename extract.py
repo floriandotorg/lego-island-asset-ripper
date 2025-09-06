@@ -68,10 +68,10 @@ def write_png(data: bytes, width: int, height: int, filename: str, flip: bool = 
         image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
     img_data = np.array(image)
     mask = (img_data[:, :, :3] == transparent_color).all(axis=-1)
-    img_data[mask, 3] = 0
+    img_data[mask] = 0
     image = Image.fromarray(img_data, "RGBA")
     image.save(filename)
-    imagemagick([filename, "-quality", "80", "-define", "heif:8", replace_ext(filename, ".avif")])
+    imagemagick([filename, "-quality", "80", "-define", "heic:speed=4", "-define", "heif:chroma=444", replace_ext(filename, ".avif")])
 
 
 def get_image(obj: SI.Object) -> Image.Image:
