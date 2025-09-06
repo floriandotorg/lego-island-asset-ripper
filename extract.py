@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from tkinter import filedialog
 from typing import Any
 
-import cv2
 import dotenv
 import numpy as np
 from PIL import Image
@@ -84,9 +83,6 @@ def get_image(obj: SI.Object) -> Image.Image:
 
 def write_bitmap(filename: str, obj: SI.Object) -> None:
     image = get_image(obj)
-    img_array = np.array(image.convert("RGB"))
-    filtered_img = cv2.bilateralFilter(img_array, 5, 50, 50)
-    image = Image.fromarray(filtered_img)
     write_png(image.convert("RGB").tobytes(), image.width, image.height, filename)
 
 
@@ -131,13 +127,6 @@ def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int, w
     folder_name = f"frames_{filename}_{obj.id}"
     os.makedirs(folder_name, exist_ok=True)
     ffmpeg([f"{folder_name}/frame_%05d.png"], mem_file.getvalue())
-    for frame_file in os.listdir(folder_name):
-        frame_path = f"{folder_name}/{frame_file}"
-        image = cv2.imread(frame_path)
-        if image is None:
-            raise Exception(f"Error reading {frame_path}")
-        filtered = cv2.bilateralFilter(image, 10, 75, 75)
-        cv2.imwrite(frame_path, filtered)
     # h264 needs width and height to be divisible by 2
     ffmpeg(["-i", f"{folder_name}/frame_%05d.png", "-framerate", str(fps), "-vf", f"scale=w={width if width % 2 == 0 else width * 2}:h={height if height % 2 == 0 else height * 2}", "-c:v", "libx264", "-crf", "18", "-preset", "veryslow", "-pix_fmt", "yuv420p", "-avoid_negative_ts", "make_zero", "-fflags", "+genpts", "-movflags", "+faststart", f"extract/{filename}/{obj.id}.mp4"])
     shutil.rmtree(folder_name)
