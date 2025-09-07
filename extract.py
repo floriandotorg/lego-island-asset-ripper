@@ -128,7 +128,7 @@ def write_video(filename: str, obj: SI.Object, mem_file: io.BytesIO, fps: int, w
     os.makedirs(folder_name, exist_ok=True)
     ffmpeg([f"{folder_name}/frame_%05d.png"], mem_file.getvalue())
     # h264 needs width and height to be divisible by 2
-    ffmpeg(["-i", f"{folder_name}/frame_%05d.png", "-framerate", str(fps), "-vf", f"scale=w={width if width % 2 == 0 else width * 2}:h={height if height % 2 == 0 else height * 2}", "-c:v", "libx264", "-crf", "18", "-preset", "veryslow", "-pix_fmt", "yuv420p", "-avoid_negative_ts", "make_zero", "-fflags", "+genpts", "-movflags", "+faststart", f"extract/{filename}/{obj.id}.mp4"])
+    ffmpeg(["-framerate", str(fps), "-i", f"{folder_name}/frame_%05d.png", "-vf", f"scale=w={width if width % 2 == 0 else width * 2}:h={height if height % 2 == 0 else height * 2}", "-c:v", "libx264", "-crf", "18", "-preset", "veryslow", "-pix_fmt", "yuv420p", "-avoid_negative_ts", "make_zero", "-fflags", "+genpts", "-movflags", "+faststart", f"extract/{filename}/{obj.id}.mp4"])
     shutil.rmtree(folder_name)
 
 
