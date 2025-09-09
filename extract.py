@@ -30,6 +30,9 @@ dotenv.load_dotenv()
 logger = logging.getLogger(__name__)
 log_level = logging.INFO
 
+ffmpeg_logger = logging.getLogger("ffmpeg")
+magick_logger = logging.getLogger("magick")
+
 transparent_color = [255, 0, 255]
 
 
@@ -45,7 +48,7 @@ def ffmpeg(ffmpeg_args: list[str], input_bytes: bytes | None = None) -> None:
         params.append("pipe:0")
     params.append("-y")
     params.extend(ffmpeg_args)
-    print(" ".join(params))
+    ffmpeg_logger.info(" ".join(params))
     proc = subprocess.Popen(params, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = proc.communicate(input=input_bytes)
     if proc.returncode != 0:
@@ -55,7 +58,7 @@ def ffmpeg(ffmpeg_args: list[str], input_bytes: bytes | None = None) -> None:
 def imagemagick(imagemagick_args: list[str]) -> None:
     params = ["magick"]
     params.extend(imagemagick_args)
-    print(" ".join(params))
+    magick_logger.info(" ".join(params))
     proc = subprocess.Popen(params, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = proc.communicate()
     if proc.returncode != 0:
@@ -149,6 +152,7 @@ if __name__ == "__main__":
         name: str
 
     def write_si(filename: str, obj: SI.Object) -> int:
+        si_file = filename
         filename = filename.lower().replace(".si", "")
 
         os.makedirs(f"extract/{filename}", exist_ok=True)
@@ -179,8 +183,6 @@ if __name__ == "__main__":
                 # for texture in wdb.model_textures:
                 #     write_gif(texture, f"extract/{filename}/models/textures/{obj.id}.png")
                 # return model_files + len(wdb.model_textures)
-                return 0
-
             case SI.FileType.WAV:
 
                 def extend_wav_chunk(type: bytes, content: bytes) -> bytes:
@@ -235,8 +237,15 @@ if __name__ == "__main__":
                 mem_file.seek(0)
                 write_video(filename, obj, mem_file, smk.fps, smk.width, smk.height)
                 return 1
-            case _:
-                return 0
+
+        if obj.presenter is None:
+            presenter_description = "None"
+        elif obj.presenter:
+            presenter_description = f"'{obj.presenter}'"
+        else:
+            presenter_description = "empty"
+        logger.warning(f"Did not handle {obj.id} in {si_file} (presenter: {presenter_description}, children: {len(obj.children)})")
+        return 0
 
     def process_file(file: File) -> int:
         logger.info(f"Extracting {file.name} ..")
