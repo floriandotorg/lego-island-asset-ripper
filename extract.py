@@ -23,7 +23,7 @@ from lib.flc import FLC
 from lib.iso import ISO9660
 from lib.si import SI
 from lib.smk import SMK
-from lib.wdb import WDB
+from lib.wdb import WDB, read_gif
 
 dotenv.load_dotenv()
 
@@ -87,6 +87,19 @@ def get_image(obj: SI.Object) -> Image.Image:
 def write_bitmap(filename: str, obj: SI.Object) -> None:
     image = get_image(obj)
     write_png(image.convert("RGB").tobytes(), image.width, image.height, filename)
+
+
+def write_texture(filename: str, obj: SI.Object) -> None:
+    with open(filename, "wb") as f:
+        f.write(obj.data)
+
+    mem_file = io.BytesIO(obj.data)
+    num_textures = struct.unpack("<I", mem_file.read(4))[0]
+    if num_textures != 1:
+        raise ValueError(f"Expected 1 texture, got {num_textures}")
+    print(f"{filename=}")
+    gif = read_gif(mem_file)
+    write_png(gif.image, gif.width, gif.height, filename, flip=True)
 
 
 def write_gif(gif: WDB.Gif, filename: str) -> None:
@@ -170,6 +183,10 @@ if __name__ == "__main__":
                 if obj.presenter == "LegoPathPresenter":
                     with open(f"extract/{filename}/{obj.id}.gph", "wb") as f:
                         f.write(obj.data)
+                    return 1
+
+                if obj.presenter == "LegoTexturePresenter":
+                    write_texture(f"extract/{filename}/{obj.id}.png", obj)
                     return 1
 
                 if obj.presenter != "LegoModelPresenter" or not obj.data:

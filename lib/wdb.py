@@ -11,6 +11,15 @@ from lib.animation import Animation
 logger = logging.getLogger(__name__)
 
 
+def _read_str(file: io.IOBase) -> str:
+    length = struct.unpack("<I", file.read(4))[0]
+    buf = file.read(length)
+    null_index = buf.find(b"\x00")
+    if null_index != -1:
+        return buf[:null_index].decode("ascii")
+    return buf.decode("ascii")
+
+
 class WDB:
     @dataclass
     class Gif:
@@ -105,31 +114,6 @@ class WDB:
                 return texture
         raise KeyError()
 
-    def _read_gif(self, title: str | None = None) -> Gif:
-        if title is None:
-            title = self._read_str()
-        logger.debug(f"{title=}")
-
-        width, height, num_colors = struct.unpack("<III", self._file.read(12))
-        logger.debug(f"{width=} {height=} {num_colors=}")
-
-        colors: list[bytes] = []
-        for _ in range(num_colors):
-            r, g, b = struct.unpack("<BBB", self._file.read(3))
-            colors.append(bytes([r, g, b]))
-
-        image = bytearray(width * height * 3)
-        for y in range(height):
-            for x in range(width):
-                pixel = struct.unpack("<B", self._file.read(1))[0]
-                image[y * width * 3 + x * 3 : y * width * 3 + x * 3 + 3] = colors[pixel]
-
-        return self.Gif(title, width, height, image)
-
-    def _read_str(self) -> str:
-        length = struct.unpack("<I", self._file.read(4))[0]
-        return self._file.read(length).decode("ascii").rstrip("\x00")
-
     def _read_vertex(self) -> tuple[float, float, float]:
         x, y, z = struct.unpack("<fff", self._file.read(12))
         return -x, y, z
@@ -191,8 +175,8 @@ class WDB:
             assert len(mesh_uv) in [0, num_mesh_verts], f"{len(mesh_uv)=} != {num_polys=}"
 
             red, green, blue, alpha, shading = struct.unpack("<BBBfB3x", self._file.read(3 + 4 + 4))
-            texture_name = self._read_str()
-            material_name = self._read_str()
+            texture_name = _read_str(self._file)
+            material_name = _read_str(self._file)
             color = WDB.Color(red, green, blue, alpha)
             shading = WDB.Shading(shading)
             logger.debug(f"{texture_name=:<30} ({len(texture_name)=:<3}), {material_name=:<30}")
@@ -202,7 +186,7 @@ class WDB:
         return WDB.Lod(result)
 
     def _read_roi(self, scanned_model_names: set[str], offset: int, path: str = "") -> "WDB.Roi":
-        model_name = self._read_str()
+        model_name = _read_str(self._file)
         logger.debug(f"{model_name=}")
 
         if path:
@@ -228,7 +212,7 @@ class WDB:
         max = self._read_vertex()
         logger.debug(f"{max=}")
 
-        texture_name = self._read_str()
+        texture_name = _read_str(self._file)
         logger.debug(f"{texture_name=}")
 
         defined_elsewhere = struct.unpack("<b", self._file.read(1))[0]
@@ -262,7 +246,7 @@ class WDB:
         logger.debug(f"{texture_info_offset=:}")
 
         for _ in range(num_rois):
-            roi_name = self._read_str()
+            roi_name = _read_str(self._file)
             logger.debug(f"{roi_name=}")
 
             num_lods, roi_info_offset = struct.unpack("<II", self._file.read(8))
@@ -281,11 +265,11 @@ class WDB:
         logger.debug(f"{num_textures=}")
 
         for _ in range(num_textures):
-            texture = self._read_gif()
+            texture = read_gif(self._file)
             self._part_textures.append(texture)
 
             if texture.title.startswith("^"):
-                self._part_textures.append(self._read_gif(title=texture.title[1:]))
+                self._part_textures.append(read_gif(self._file, title=texture.title[1:]))
 
         return result
 
@@ -315,11 +299,11 @@ class WDB:
         logger.debug(f"{num_textures=} {skip_textures=}")
 
         for _ in range(num_textures):
-            texture = self._read_gif()
+            texture = read_gif(self._file)
             self._model_textures.append(texture)
 
             if texture.title.startswith("^"):
-                self._model_textures.append(self._read_gif(title=texture.title[1:]))
+                self._model_textures.append(read_gif(self._file, title=texture.title[1:]))
 
     def __init__(self, file: io.BufferedIOBase, read_si_model=False):
         self._file = file
@@ -334,14 +318,14 @@ class WDB:
         parts_offsets: list[int] = []
         models_offsets: list[int] = []
         for _ in range(num_worlds):
-            world_name = self._read_str()
+            world_name = _read_str(self._file)
             logger.debug(f"{world_name=}")
 
             num_parts = struct.unpack("<I", self._file.read(4))[0]
             logger.debug(f"{num_parts=}")
 
             for _ in range(num_parts):
-                world_name = self._read_str()
+                world_name = _read_str(self._file)
                 logger.debug(f"{world_name=}")
 
                 item_size, offset = struct.unpack("<II", self._file.read(8))
@@ -353,13 +337,13 @@ class WDB:
             logger.debug(f"{num_models=}")
 
             for _ in range(num_models):
-                model_name = self._read_str()
+                model_name = _read_str(self._file)
                 logger.debug(f"{model_name=}")
 
                 size, offset = struct.unpack("<II", self._file.read(8))
                 logger.debug(f"{size=} {offset=}")
 
-                presenter_name = self._read_str()
+                presenter_name = _read_str(self._file)
                 logger.debug(f"{presenter_name=}")
 
                 location_x, location_y, location_z, direction_x, direction_y, direction_z, up_x, up_y, up_z = struct.unpack("<fffffffffx", self._file.read(37))
@@ -371,7 +355,7 @@ class WDB:
         logger.debug(f"{gif_chunk_size=} {num_gifs=}")
 
         for _ in range(num_gifs):
-            self._images.append(self._read_gif())
+            self._images.append(read_gif(self._file))
 
         model_chunk_size = struct.unpack("<I", self._file.read(4))[0]
         logger.debug(f"{model_chunk_size=}")
@@ -391,3 +375,25 @@ class WDB:
 
             self._file.seek(offset, io.SEEK_SET)
             self._read_model()
+
+
+def read_gif(file: io.IOBase, title: str | None = None) -> WDB.Gif:
+    if title is None:
+        title = _read_str(file)
+    logger.debug(f"{title=}")
+
+    width, height, num_colors = struct.unpack("<III", file.read(12))
+    logger.debug(f"{width=} {height=} {num_colors=}")
+
+    colors: list[bytes] = []
+    for _ in range(num_colors):
+        r, g, b = struct.unpack("<BBB", file.read(3))
+        colors.append(bytes([r, g, b]))
+
+    image = bytearray(width * height * 3)
+    for y in range(height):
+        for x in range(width):
+            pixel = struct.unpack("<B", file.read(1))[0]
+            image[y * width * 3 + x * 3 : y * width * 3 + x * 3 + 3] = colors[pixel]
+
+    return WDB.Gif(title, width, height, image)

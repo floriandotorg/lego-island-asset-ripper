@@ -196,7 +196,18 @@ files = [
 [package.extras]
 cli = ["click (>=5.0)"]
 
+[[package]]
+name = "types-pillow"
+version = "10.2.0.20240822"
+description = "Typing stubs for Pillow"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-Pillow-10.2.0.20240822.tar.gz", hash = "sha256:559fb52a2ef991c326e4a0d20accb3bb63a7ba8d40eb493e0ecb0310ba52f0d3"},
+    {file = "types_Pillow-10.2.0.20240822-py3-none-any.whl", hash = "sha256:d9dab025aba07aeb12fd50a6799d4eac52a9603488eca09d7662543983f16c5d"},
+]
+
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.13"
-content-hash = "e7242ecd2d63f198f1904471a66533b75ed78d55298cc5471502d930ca18a30a"
+content-hash = "8f624fc2fef66aed321c0efa4dcd4c193d620731bb5795774428c3f0d9ef02cf"
