@@ -173,6 +173,16 @@ if __name__ == "__main__":
         if args.no_extract:
             return 0
 
+        if obj.presenter is None:
+            presenter_description = "None"
+        elif obj.presenter:
+            presenter_description = f"'{obj.presenter}'"
+        else:
+            presenter_description = "empty"
+        if not obj.data:
+            logger.debug(f"Did not extract empty object {obj.id} in {si_file} (presenter: {presenter_description}, children: {len(obj.children)})")
+            return 0
+
         match obj.file_type:
             case SI.FileType.OBJ:
                 if obj.presenter == "LegoAnimPresenter" or obj.presenter == "LegoLocomotionAnimPresenter" or obj.presenter == "LegoCarBuildAnimPresenter" or obj.presenter == "LegoLoopingAnimPresenter":
@@ -255,12 +265,6 @@ if __name__ == "__main__":
                 write_video(filename, obj, mem_file, smk.fps, smk.width, smk.height)
                 return 1
 
-        if obj.presenter is None:
-            presenter_description = "None"
-        elif obj.presenter:
-            presenter_description = f"'{obj.presenter}'"
-        else:
-            presenter_description = "empty"
         logger.warning(f"Did not handle {obj.id} in {si_file} (presenter: {presenter_description}, children: {len(obj.children)})")
         return 0
 
