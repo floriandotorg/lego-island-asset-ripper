@@ -198,9 +198,11 @@ if __name__ == "__main__":
                 if obj.presenter == "LegoTexturePresenter":
                     write_texture(f"extract/{filename}/{obj.id}.png", obj)
                     return 1
-
-                if obj.presenter != "LegoModelPresenter" or not obj.data:
-                    return 0
+                
+                if obj.presenter == "LegoModelPresenter":
+                    with open(f"extract/{filename}/{obj.id}.mod", "wb") as f:
+                        f.write(obj.data)
+                    return 1
 
                 # model_files = 0
                 # wdb = WDB(io.BytesIO(obj.data), read_si_model=True)
