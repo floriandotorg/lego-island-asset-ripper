@@ -278,9 +278,10 @@ if __name__ == "__main__":
 
     si_files: list[File] = []
     wdb_files: list[io.BytesIO] = []
+    dta_files: list[tuple[str, io.BytesIO]] = []
     with ISO9660(get_iso_path(args.iso)) as iso:
         for file in iso.filelist:
-            if not file.endswith(".SI") and not file.endswith(".WDB"):
+            if not file.endswith(".SI") and not file.endswith(".WDB") and not file.endswith(".DTA"):
                 continue
 
             try:
@@ -291,6 +292,8 @@ if __name__ == "__main__":
                     si_files.append(File(SI(mem_file), file))
                 elif file.endswith(".WDB"):
                     wdb_files.append(mem_file)
+                elif file.endswith(".DTA"):
+                    dta_files.append((os.path.basename(file), mem_file))
                 else:
                     raise ValueError(f"Unknown file type: {file}")
             except ValueError:
@@ -317,6 +320,10 @@ if __name__ == "__main__":
                 write_gif(model_texture, f"extract/world/model_textures/{model_texture.title.lower()}.png")
             exported_files += len(wdb.images) + len(wdb.part_textures) + len(wdb.model_textures)
         logger.info("Exporting WDB textures .. [done]")
+
+        for (dta_file_name, dta_file) in dta_files:
+            with open("extract/" + dta_file_name, "wb") as f:
+                f.write(dta_file.getvalue())
 
         for si_file in si_files:
             process_file(si_file)
