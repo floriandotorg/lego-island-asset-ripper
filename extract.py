@@ -10,7 +10,7 @@ import shutil
 import struct
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from tkinter import filedialog
 from typing import Any
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("iso", nargs="?", help="path to the iso file (if not provided, does show file open dialog)")
     parser.add_argument("-E", "--no-extract", action="store_true", help="does not extract and convert the contents from ISO file")
-    parser.add_argument("--isle", metavar="ISLEDECOMP", help="provide the file path to the decompilation project and generate typescript files from the header files")
+    parser.add_argument("-A", "--no-actions", action="store_true", help="also generate the action type script files")
 
     args = parser.parse_args()
 
@@ -330,20 +330,7 @@ if __name__ == "__main__":
 
         logger.info(f"Exported {exported_files} files")
 
-    if args.isle:
-        isle_path_str = args.isle
-    else:
-        isle_path_str = os.getenv("LEGO_ISLAND_DECOMP_FOLDER")
-
-    if isle_path_str:
-        isle_path = pathlib.Path(isle_path_str)
-        if not isle_path.is_dir():
-            logger.error("Isle path is not a valid directory")
-            sys.exit(1)
-
-        if "LEGO1" in (p.name for p in isle_path.iterdir()):
-            isle_path = isle_path / "LEGO1" / "lego" / "legoomni" / "include" / "actions"
-
+    if not args.no_actions:
         objects: dict[str, dict[int, SI.Object]] = defaultdict(dict)
 
         def walk(objs: list[SI.Object]) -> list[SI.Object]:
@@ -399,6 +386,8 @@ if __name__ == "__main__":
             filename = os.path.basename(filename).lower().replace(".si", "")
             print(f"Processing {filename} ..")
 
+            names: list[str] = []
+
             for obj in obj_dict.values():
                 if "Map;" in obj.extra_data or "Filler_index" in obj.extra_data:
                     obj.should_export_palette = True
@@ -425,16 +414,17 @@ if __name__ == "__main__":
                 elif obj.file_type == SI.FileType.SMK:
                     smk = SMK(io.BytesIO(obj.data))
                     obj.dimensions = SI.Dimensions(smk.width, smk.height)
+                
+                names.append(obj.name)
 
-            with open(isle_path / f"{filename}_actions.h", "r") as hfile:
-                matches = re.findall(r"c_([A-Z0-9_]+)\s*=\s*(\d+)", hfile.read(), re.IGNORECASE | re.MULTILINE)
-                with open(f"actions/{filename}.ts", "w") as tfile:
-                    tfile.write('import { Action } from "./types"\n')
+            name_counts = Counter(names)
 
-                    for match in matches:
-                        action = obj_dict[int(match[1])]
-                        set_filename(action, filename)
-                        obj_str = json.dumps(filter_none_deep(action.to_dict()), indent=2)
-                        obj_str = re.sub(r"\"type\": (\d+)", lambda match: f'"type": Action.Type.{SI.Type(int(match.group(1))).name}', obj_str)
-                        obj_str = re.sub(r"\"file_type\": (\d+)", lambda match: f'"file_type": Action.FileType.{SI.FileType(int(match.group(1))).name}', obj_str)
-                        tfile.write(f"export const {match[0]} = {obj_str} as const\n")
+            with open(f"actions/{filename}.ts", "w") as tfile:
+                tfile.write('import { Action } from "./types"\n')
+                for obj in sorted(obj_dict.values(), key=lambda o: o.id):
+                    obj_name = obj.name if name_counts[obj.name] < 2 else f"{obj.name}_{obj.id}"
+                    set_filename(obj, filename)
+                    obj_str = json.dumps(filter_none_deep(obj.to_dict()), indent=2)
+                    obj_str = re.sub(r"\"type\": (\d+)", lambda match: f'"type": Action.Type.{SI.Type(int(match.group(1))).name}', obj_str)
+                    obj_str = re.sub(r"\"file_type\": (\d+)", lambda match: f'"file_type": Action.FileType.{SI.FileType(int(match.group(1))).name}', obj_str)
+                    tfile.write(f"export const {obj_name} = {obj_str} as const\n")
