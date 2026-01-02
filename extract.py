@@ -4,7 +4,6 @@ import itertools
 import json
 import logging
 import os
-import pathlib
 import re
 import shutil
 import struct
@@ -155,7 +154,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("iso", nargs="?", help="path to the iso file (if not provided, does show file open dialog)")
     parser.add_argument("-E", "--no-extract", action="store_true", help="does not extract and convert the contents from ISO file")
-    parser.add_argument("-A", "--no-actions", action="store_true", help="also generate the action type script files")
+    parser.add_argument("-A", "--no-actions", action="store_true", help="does not generate the action type script files")
 
     args = parser.parse_args()
 
@@ -198,7 +197,7 @@ if __name__ == "__main__":
                 if obj.presenter == "LegoTexturePresenter":
                     write_texture(f"extract/{filename}/{obj.id}.png", obj)
                     return 1
-                
+
                 if obj.presenter == "LegoModelPresenter":
                     with open(f"extract/{filename}/{obj.id}.mod", "wb") as f:
                         f.write(obj.data)
@@ -321,7 +320,7 @@ if __name__ == "__main__":
             exported_files += len(wdb.images) + len(wdb.part_textures) + len(wdb.model_textures)
         logger.info("Exporting WDB textures .. [done]")
 
-        for (dta_file_name, dta_file) in dta_files:
+        for dta_file_name, dta_file in dta_files:
             with open("extract/" + dta_file_name, "wb") as f:
                 f.write(dta_file.getvalue())
 
@@ -414,7 +413,7 @@ if __name__ == "__main__":
                 elif obj.file_type == SI.FileType.SMK:
                     smk = SMK(io.BytesIO(obj.data))
                     obj.dimensions = SI.Dimensions(smk.width, smk.height)
-                
+
                 names.append(obj.name)
 
             name_counts = Counter(names)

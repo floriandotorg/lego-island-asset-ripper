@@ -46,9 +46,8 @@ python extract.py <ISO_FILE> [-E] [--isle ISLEDECOMP]
 Replace `<ISO_FILE>` with the path to your LEGO Island ISO file and if none is provided it'll query via a file open
 dialog. Full extract takes around 5-10 minutes.
 
-With `-E`/`--no-extract` no files are extracted and can be used to generate the typescript files. When `-I`/`--isle` or
-`LEGO_ISLAND_DECOMP_FOLDER` point to the isle decompliation directory, it'll generate the typescript files. The
-parameter takes precedence.
+With `-E`/`--no-extract` no files are extracted and this option can be used to only generate the typescript files.  
+With `-A`/`--no-actions`, the script will not generate the action type script files.
 
 #### Example:
 
