@@ -184,7 +184,7 @@ if __name__ == "__main__":
 
         match obj.file_type:
             case SI.FileType.OBJ:
-                if obj.presenter == "LegoAnimPresenter" or obj.presenter == "LegoLocomotionAnimPresenter" or obj.presenter == "LegoCarBuildAnimPresenter" or obj.presenter == "LegoLoopingAnimPresenter":
+                if obj.presenter == "LegoAnimPresenter" or obj.presenter == "LegoLocomotionAnimPresenter" or obj.presenter == "LegoCarBuildAnimPresenter" or obj.presenter == "LegoLoopingAnimPresenter" or obj.presenter == "LegoHideAnimPresenter":
                     with open(f"extract/{filename}/{obj.id}.ani", "wb") as f:
                         f.write(obj.data)
                     return 1
