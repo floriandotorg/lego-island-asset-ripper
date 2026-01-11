@@ -265,6 +265,10 @@ if __name__ == "__main__":
                 mem_file.seek(0)
                 write_video(filename, obj, mem_file, smk.fps, smk.width, smk.height)
                 return 1
+            case SI.FileType.TVE:
+                with open(f"extract/{filename}/{obj.id}.evt", "wb") as f:
+                    f.write(obj.data)
+                return 1
 
         logger.warning(f"Did not handle {obj.id} in {si_file} (presenter: {presenter_description}, children: {len(obj.children)})")
         return 0
@@ -306,18 +310,18 @@ if __name__ == "__main__":
         os.makedirs("extract/world/images", exist_ok=True)
         os.makedirs("extract/world/part_textures", exist_ok=True)
         os.makedirs("extract/world/model_textures", exist_ok=True)
-        for wdb_file in wdb_files:
-            with open("extract/world.wdb", "wb") as f:
-                f.write(wdb_file.getvalue())
+        # for wdb_file in wdb_files:
+        #     with open("extract/world.wdb", "wb") as f:
+        #         f.write(wdb_file.getvalue())
 
-            wdb = WDB(io.BytesIO(open("extract/world.wdb", "rb").read()))
-            for image in wdb.images:
-                write_gif(image, f"extract/world/images/{image.title.lower()}.png")
-            for texture in wdb.part_textures:
-                write_gif(texture, f"extract/world/part_textures/{texture.title.lower()}.png")
-            for model_texture in wdb.model_textures:
-                write_gif(model_texture, f"extract/world/model_textures/{model_texture.title.lower()}.png")
-            exported_files += len(wdb.images) + len(wdb.part_textures) + len(wdb.model_textures)
+        #     wdb = WDB(io.BytesIO(open("extract/world.wdb", "rb").read()))
+        #     for image in wdb.images:
+        #         write_gif(image, f"extract/world/images/{image.title.lower()}.png")
+        #     for texture in wdb.part_textures:
+        #         write_gif(texture, f"extract/world/part_textures/{texture.title.lower()}.png")
+        #     for model_texture in wdb.model_textures:
+        #         write_gif(model_texture, f"extract/world/model_textures/{model_texture.title.lower()}.png")
+        #     exported_files += len(wdb.images) + len(wdb.part_textures) + len(wdb.model_textures)
         logger.info("Exporting WDB textures .. [done]")
 
         for dta_file_name, dta_file in dta_files:
